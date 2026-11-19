@@ -2766,6 +2766,8 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
     AddIntrinsicMethod(view_group, "detachViewFromParent", {"Landroid/view/View;"}, "V", pub,
                        VGDetachViewFromParent);
     AddIntrinsicMethod(view_group, "detachViewFromParent", {"I"}, "V", pub, VGDetachViewFromParentIdx);
+    AddIntrinsicMethod(view_group, "removeDetachedView", {"Landroid/view/View;", "Z"}, "V", pub,
+                       VGRemoveDetachedView);
     AddIntrinsicMethod(view_group, "getPaddingLeft", {}, "I", pub, VGGetPaddingLeft);
     AddIntrinsicMethod(view_group, "getPaddingTop", {}, "I", pub, VGGetPaddingTop);
     AddIntrinsicMethod(view_group, "getPaddingRight", {}, "I", pub, VGGetPaddingRight);

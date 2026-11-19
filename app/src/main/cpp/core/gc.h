@@ -21,4 +21,12 @@ size_t CollectGarbage(runtime::VMState& state);
 // （state 须覆盖 heap 全部使用期）。
 void GcAttach(runtime::VMState& state);
 
+// 外部根提供者：非 guest 堆内登记表（如桥接层 ClickRegistry 里的
+// listener——AOSP 中由 View.mListenerInfo 持有，本 VM 由桥接表持有）参与
+// 标记。visit 对每个强引用调用 mark(mark_ctx, obj)；obj 必须是堆对象起点。
+// 单槽全局（同一进程至多一个 VM 会话）；fn=nullptr 清除。
+using ExternalMarkFn = void (*)(void* mark_ctx, void* obj);
+using ExternalRootVisitorFn = void (*)(void* ctx, ExternalMarkFn mark, void* mark_ctx);
+void SetExternalRootVisitor(ExternalRootVisitorFn fn, void* ctx);
+
 }  // namespace dexvm::gc

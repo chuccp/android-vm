@@ -1305,6 +1305,8 @@ void RegisterBuiltins(ClassLinker* linker) {
       AddIntrinsicMethod(string, "matches", {"Ljava/lang/String;"}, "Z", pub, StrMatches);
       AddIntrinsicMethod(string, "replaceAll", {"Ljava/lang/String;", "Ljava/lang/String;"},
                          "Ljava/lang/String;", pub, StrReplaceAll);
+      AddIntrinsicMethod(string, "replaceFirst", {"Ljava/lang/String;", "Ljava/lang/String;"},
+                         "Ljava/lang/String;", pub, StrReplaceFirst);
       AddIntrinsicMethod(string, "toCharArray", {}, "[C", pub, StrToCharArray);
       AddIntrinsicMethod(string, "getBytes", {}, "[B", pub, StrGetBytes);
       AddIntrinsicMethod(string, "getBytes", {"Ljava/lang/String;"}, "[B", pub, StrGetBytes);

@@ -493,6 +493,7 @@ Value VGDetachViewFromParent(VMState& state, VObject* self, const Value* args, s
                              bool* ok);
 Value VGDetachViewFromParentIdx(VMState& state, VObject* self, const Value* args, size_t n,
                                 bool* ok);
+Value VGRemoveDetachedView(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewAnimate(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewCombineMeasuredStates(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewFindViewById(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);

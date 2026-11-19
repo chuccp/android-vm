@@ -2390,6 +2390,44 @@ Value StrReplaceAll(VMState& state, VObject* self, const Value* args, size_t n, 
   }
   return r;
 }
+Value StrReplaceFirst(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  Value r{};
+  if (n < 2 || args[1].ref == nullptr) {
+    state.ThrowNew("Ljava/lang/NullPointerException;", "replaceFirst: replacement == null");
+    *ok = false;
+    return Value{};
+  }
+  Value pat{};
+  if (!StrCompilePattern(state, args[0], &pat)) {
+    *ok = false;
+    return Value{};
+  }
+  Value matcher{};
+  if (!StrMatcherOf(state, static_cast<VObject*>(pat.ref), self, &matcher)) {
+    *ok = false;
+    return Value{};
+  }
+  VMethod probe;
+  probe.name = "replaceFirst";
+  probe.param_types = {"Ljava/lang/String;"};
+  probe.return_type = "Ljava/lang/String;";
+  VMethod* replace_first = matcher.ref != nullptr && matcher.ref->klass != nullptr
+                               ? matcher.ref->klass->FindInterfaceImpl(&probe)
+                               : nullptr;
+  if (replace_first == nullptr) {
+    state.ThrowNew("Ljava/lang/InternalError;", "Matcher.replaceFirst missing");
+    *ok = false;
+    return Value{};
+  }
+  Value mv[2] = {};
+  mv[0].ref = matcher.ref;
+  mv[1].ref = args[1].ref;
+  if (!InvokeMethod(state, replace_first, mv, 2, &r)) {
+    *ok = false;
+    return Value{};
+  }
+  return r;
+}
 // <clinit> HI/LO_BYTE_SHIFT 消费——内建 String 面助手与 lib 字节缓冲通道衔接）
 Value StringUTF16IsBigEndian(VMState& state, VObject* self, const Value* args, size_t n,
                              bool* ok) {

@@ -577,7 +577,7 @@ public final class UiBridgeMaterializer {
             v = new HostFrameLayout(context);
         }
         applyProps(v, node);
-        wireClick(v, node.guestViewId);
+        wireClick(v, node);
         return v;
     }
 
@@ -811,18 +811,31 @@ public final class UiBridgeMaterializer {
         return src;
     }
 
-    private void wireClick(final View v, final int guestViewId) {
+    private void wireClick(final View v, final Node node) {
+        final int objectId = node.objectId;
+        Prop hasClick = node.prop(PROP_HAS_CLICK);
+        if (hasClick == null || hasClick.asInt() == 0) {
+            // AOSP 命中语义：没有 click listener 的 View 不消费触摸。此前对
+            // 每个物化 View 都 setClickable(true)，导致全屏透明 overlay_container
+            // 与行内 TextView 抢走点击并注入错误节点（重试/底部导航全失效）。
+            v.setOnClickListener(null);
+            v.setClickable(false);
+            return;
+        }
         v.setClickable(true);
         v.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View vv) {
                 String status;
                 try {
-                    status = NativeBridge.nativeDispatchViewClick(guestViewId);
+                    // 按快照 handle.object_id 回灌：mId 为 0 的视图（tab 容器/
+                    // 自绘行）在 viewId 通道会撞到任意无 id 记录，派发到已回收
+                    // 监听器（dirty reference InternalError）。
+                    status = NativeBridge.nativeDispatchViewObjectClick(objectId);
                 } catch (Throwable t) {
                     status = "error: " + t;
                 }
-                Log.i(TAG, "host click viewId=" + guestViewId + " -> " + status);
+                Log.i(TAG, "host click objectId=" + objectId + " -> " + status);
             }
         });
     }
@@ -890,7 +903,7 @@ public final class UiBridgeMaterializer {
                     }
                     if (op.guestViewId != -1) node.guestViewId = op.guestViewId;
                     applyProps(v, node);
-                    wireClick(v, node.guestViewId);
+                    wireClick(v, node);
                     // bounds 变更：有几何 -> guest 绝对布局；无几何 -> 宿主布局。
                     Prop bounds = node.prop(PROP_BOUNDS);
                     if (bounds != null && v.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {

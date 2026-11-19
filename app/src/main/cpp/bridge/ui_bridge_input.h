@@ -25,14 +25,25 @@ namespace dexvm::bridge {
 //   "channel-ok viewId=N guest-session=absent" —— 会话外（设备侧安全形态）
 std::string InjectGuestClick(dexvm::runtime::VMState* vm_state, int32_t view_id);
 
+// 按快照 handle.object_id 寻址的点击回灌（推荐路径）。guest View 身份稳定，
+// 对 mId==0 的视图（列表容器/自绘行等）不会像 viewId 通道那样退化成
+// "第一条 mId==0 记录"，避免派发到已回收的旧监听器。状态串同 viewId 通道：
+//   "dispatched objectId=N listener=1/0" / "no-view objectId=N" / channel-ok …
+std::string InjectGuestObjectClick(dexvm::runtime::VMState* vm_state, uint32_t object_id);
+
 // 当前登记的 guest 监听器个数（会话内断言用）。
 size_t GuestClickListenerCount();
 
 // 该 guest View 是否登记了监听器（快照 kPropHasClickListener 用；无副作用）。
 bool HasGuestClickListener(dexvm::runtime::VObject* view);
 
-// 视图登记（快照导出 walk 时调用：viewId -> view 映射，InjectGuestClick 查路）。
-void NoteGuestView(dexvm::runtime::VObject* view);
+// 视图登记（快照导出 walk 时调用：object_id -> view 映射，点击回灌查路）。
+void NoteGuestView(dexvm::runtime::VObject* view, uint32_t object_id);
+
+// 快照 walk 边界（BuildSnapshotFromGuest 首尾调用）：推进/淘汰登记表代号，
+// 只让当前树内视图参与点击派发与 listener GC 根。
+void BeginGuestSnapshotWalk();
+void EndGuestSnapshotWalk();
 
 // 登记表（监听器 + 视图映射）清空（RegisterRenderPipeline 每 VM 引导调用；
 // 防跨会话悬挂）。

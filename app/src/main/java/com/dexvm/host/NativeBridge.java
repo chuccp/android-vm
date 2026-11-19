@@ -111,6 +111,12 @@ public final class NativeBridge {
     public static native String nativeDispatchViewClick(int viewId);
 
     /**
+     * UI 桥接：按快照 handle.object_id 的点击回灌（推荐路径）。object_id 是
+     * guest View 身份（与 mId 无关），无 id 的视图（mId==0）也能精确寻址。
+     */
+    public static native String nativeDispatchViewObjectClick(int objectId);
+
+    /**
      * M3 加固考卷设备化：exam_smoke 同款引导 + LifecycleDriver 驱动 + 逐 phase/缺口
      * 诊断；System.loadLibrary 设备钩子接真 loader（APK 内 lib/&lt;abi&gt;/*.so 解压到
      * files/nativeLibDir -> dlopen -> JNI_OnLoad(VM JNIEnvExt) -> RegisterNatives 生效）。

@@ -135,6 +135,14 @@ struct Marker {
   }
 };
 
+// 外部根提供者（桥接层登记表；见 gc.h）。Marker 定义之后才能做 thunk。
+ExternalRootVisitorFn g_external_root_visitor = nullptr;
+void* g_external_root_ctx = nullptr;
+
+void MarkExternalRoot(void* mark_ctx, void* obj) {
+  static_cast<Marker*>(mark_ctx)->Mark(reinterpret_cast<ObjHeader*>(obj));
+}
+
 // ---- 保守栈扫描（ASan 构建关闭：红区不兼容，见上方宏）----
 #if !DEXVM_GC_ASAN
 
@@ -286,6 +294,11 @@ void GcAttach(VMState& state) {
       &state);
 }
 
+void SetExternalRootVisitor(ExternalRootVisitorFn fn, void* ctx) {
+  g_external_root_visitor = fn;
+  g_external_root_ctx = ctx;
+}
+
 size_t CollectGarbage(VMState& state) {
   mem::Heap* heap = state.heap;
   if (heap == nullptr || state.linker == nullptr) return 0;
@@ -311,6 +324,11 @@ size_t CollectGarbage(VMState& state) {
 
   // 根：钉住根（预分配 OOM 单例等；传递闭包含其 klass/detailMessage）
   for (void* p : heap->pinned()) m.Mark(reinterpret_cast<ObjHeader*>(p));
+
+  // 根：外部登记表（桥接层 View 点击 listener 等；非 guest 堆内引用）
+  if (g_external_root_visitor != nullptr) {
+    g_external_root_visitor(g_external_root_ctx, &MarkExternalRoot, &m);
+  }
 
   // 根：解释器帧（保守扫描 64 位槽对；frame_stack = 多 GuestTask 共享活跃帧集，
   // fiber 换出的挂起 task 帧同样在内）

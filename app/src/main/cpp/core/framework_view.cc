@@ -25,12 +25,14 @@
 #include <new>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "core/class_linker.h"
 #include "core/builtins.h"
 #include "core/exception.h"
+#include "core/gc.h"
 #include "core/intrinsic.h"
 #include "core/interpreter.h"
 #include "core/framework_builtins_internal.h"
@@ -552,6 +554,23 @@ Value VGDetachViewFromParentIdx(VMState& state, VObject* self, const Value* args
   av[0].i = args[0].i;
   av[1].i = 1;
   return VGRemoveViewAt(state, self, av, 2, ok);
+}
+
+// removeDetachedView(View, boolean)：AOSP ViewGroup 隐藏面。RecyclerView 在
+// detachViewFromParent 之后调用它完成子 View 收尾；缺方法会抛
+// NoSuchMethodError 中断列表回收/重排（feed 列表空白的一个直接缺口）。
+// VM 无窗口动画面，animate 忽略：兜底从 mChildren 移除 + mParent 置空。
+Value VGRemoveDetachedView(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  *ok = true;
+  if (n < 1 || args[0].ref == nullptr) return Value{};
+  VObject* child = reinterpret_cast<VObject*>(args[0].ref);
+  Value av[1] = {};
+  av[0] = args[0];
+  VGRemoveView(state, self, av, 1, ok);
+  if (VField* pf = FindInstanceField(child->klass, "mParent")) {
+    SetRefField(child, pf->offset, nullptr);
+  }
+  return Value{};
 }
 
 // removeViewAt(int) / removeViews(int,int)：AOSP 子序移除（区间形取首参起 1 个）
@@ -1237,23 +1256,52 @@ namespace {
 struct ClickEntry {
   VObject* view = nullptr;
   VObject* listener = nullptr;
+  // 快照 handle.object_id（guest View 身份；mId==0 的视图只能靠它寻址）。
+  uint32_t object_id = 0;
+  // 最近一次快照 walk 的代号（派发前校验：只派发当前树内的活视图）。
+  uint64_t seen_gen = 0;
 };
 
-std::vector<ClickEntry>& ClickRegistry() {
-  static std::vector<ClickEntry> registry;
+std::unordered_map<VObject*, ClickEntry>& ClickRegistry() {
+  static std::unordered_map<VObject*, ClickEntry> registry;
   return registry;
 }
 
+// 快照 walk 代号：每次 BuildSnapshotFromGuest 递增。登记表条目记录最近一次
+// 被 walk 到的代号；派发只接受 seen_gen == 当前代号（从树里移除的旧视图
+// 不再派发，避免把点击注入已被回收的监听器）。
+uint64_t& ClickGen() {
+  static uint64_t gen = 0;
+  return gen;
+}
+
 ClickEntry* FindClickEntry(VObject* view) {
-  for (auto& e : ClickRegistry()) {
-    if (e.view == view) return &e;
-  }
-  return nullptr;
+  auto& reg = ClickRegistry();
+  auto it = reg.find(view);
+  return it != reg.end() ? &it->second : nullptr;
 }
 
 VObject* FindClickListener(VObject* view) {
   ClickEntry* e = FindClickEntry(view);
   return e != nullptr ? e->listener : nullptr;
+}
+
+// GC 外部根：listener 在 AOSP 由 View.mListenerInfo 持有；本 VM 的桥接表
+// 是它唯一的强引用（C++ 堆上的 std::unordered_map 不在保守静态根扫描面内），
+// 不登记就会被 GC 回收——这正是 tab 点击 "dirty reference ... onClick" 的根因。
+void MarkClickListenerRoots(void* ctx, dexvm::gc::ExternalMarkFn mark, void* mark_ctx) {
+  (void)ctx;
+  for (auto& kv : ClickRegistry()) {
+    if (kv.second.listener != nullptr) mark(mark_ctx, kv.second.listener);
+  }
+}
+
+void EnsureClickRootsRegistered() {
+  static bool registered = false;
+  if (!registered) {
+    registered = true;
+    dexvm::gc::SetExternalRootVisitor(&MarkClickListenerRoots, nullptr);
+  }
 }
 
 }  // namespace
@@ -1266,11 +1314,15 @@ Value ViewSetOnClickListener(VMState& state, VObject* self, const Value* args, s
   *ok = true;
   VObject* listener = nullptr;
   if (n >= 1 && args[0].ref != nullptr) listener = reinterpret_cast<VObject*>(args[0].ref);
+  EnsureClickRootsRegistered();
   ClickEntry* e = FindClickEntry(self);
   if (e != nullptr) {
     e->listener = listener;
   } else {
-    ClickRegistry().push_back(ClickEntry{self, listener});
+    ClickEntry entry;
+    entry.view = self;
+    entry.listener = listener;
+    ClickRegistry().emplace(self, entry);
   }
   return Value{};
 }
@@ -2017,18 +2069,47 @@ using dexvm::runtime::VField;
 using dexvm::runtime::VMState;
 using dexvm::runtime::VObject;
 
-void NoteGuestView(VObject* view) {
+void NoteGuestView(VObject* view, uint32_t object_id) {
   if (view == nullptr) return;
-  if (FindClickEntry(view) != nullptr) return;
-  ClickRegistry().push_back(ClickEntry{view, nullptr});
+  dexvm::runtime::EnsureClickRootsRegistered();
+  auto& reg = ClickRegistry();
+  auto it = reg.find(view);
+  if (it == reg.end()) {
+    ClickEntry entry;
+    entry.view = view;
+    it = reg.emplace(view, entry).first;
+  }
+  it->second.object_id = object_id;  // 快照复算同一指针身份，刷新 handle id
+  it->second.seen_gen = dexvm::runtime::ClickGen();
+}
+
+// 快照 walk 边界：walk 内 NoteGuestView 刷新 seen_gen；walk 结束后只保留
+// 最近 kKeepGens 个代号内见过的条目（RecyclerView 复用视图在回收/再绑定期
+// 间不会丢 listener；彻底离树的旧视图随条目删除一起解除 GC 根）。
+void BeginGuestSnapshotWalk() {
+  ++dexvm::runtime::ClickGen();
+  dexvm::runtime::EnsureClickRootsRegistered();
+}
+
+void EndGuestSnapshotWalk() {
+  constexpr uint64_t kKeepGens = 600;
+  auto& reg = ClickRegistry();
+  const uint64_t gen = dexvm::runtime::ClickGen();
+  for (auto it = reg.begin(); it != reg.end();) {
+    if (gen > it->second.seen_gen && gen - it->second.seen_gen > kKeepGens) {
+      it = reg.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 bool HasGuestClickListener(VObject* view) { return FindClickListener(view) != nullptr; }
 
 size_t GuestClickListenerCount() {
   size_t count = 0;
-  for (const auto& e : ClickRegistry()) {
-    if (e.listener != nullptr) count++;
+  for (const auto& kv : ClickRegistry()) {
+    if (kv.second.listener != nullptr) count++;
   }
   return count;
 }
@@ -2038,34 +2119,39 @@ void ClearGuestClickListeners() {
   dexvm::runtime::ResetViewStateRegistries();  // selected/activated/rotation/desc 侧表
 }
 
-std::string InjectGuestClick(VMState* vm_state, int32_t view_id) {
-  // 会话外（设备侧宿主点击时 guest VM 通常已收场）：只回通路状态，不触 guest 堆。
-  if (vm_state == nullptr) {
-    return "channel-ok viewId=" + std::to_string(view_id) + " guest-session=absent";
-  }
-  // viewId -> 登记的 guest view（mId 实时匹配）
-  VObject* target = nullptr;
-  for (auto& e : ClickRegistry()) {
-    if (e.view == nullptr) continue;
-    VField* f = FindInstanceField(e.view->klass, "mId");
-    if (f != nullptr && GetIField(e.view, f->offset) == view_id) {
-      target = e.view;
-      break;
-    }
-  }
-  if (target == nullptr) {
-    return "no-view viewId=" + std::to_string(view_id);
-  }
+namespace {
+// 只派发当前快照树内的活视图（见 ClickEntry::seen_gen 注释）。
+bool IsLiveClickEntry(const ClickEntry& e) {
+  return e.view != nullptr && e.seen_gen == dexvm::runtime::ClickGen();
+}
+}  // namespace
+
+namespace {
+
+// 命中 guest view 后按 AOSP 触摸语义派发：落到不可点击子 View 的触摸会被
+// 父链上可点击的祖先消费（子 View 不消费 DOWN）。宿主快照节点可能只是行内
+// 文本（如“重新加载”），监听器挂在容器行上；命中节点无监听时沿 mParent
+// 上溯到最近的可点击祖先，onClick 收到该祖先（performClick(this)）。
+std::string DispatchGuestClick(VMState* vm_state, VObject* target, const std::string& key) {
   VObject* listener = FindClickListener(target);
+  VObject* click_target = target;
+  for (int depth = 0; listener == nullptr && click_target != nullptr && depth < 64; depth++) {
+    VField* pf = FindInstanceField(click_target->klass, "mParent");
+    VObject* parent =
+        pf != nullptr ? reinterpret_cast<VObject*>(GetRefField(click_target, pf->offset)) : nullptr;
+    if (parent == nullptr) break;
+    click_target = parent;
+    listener = FindClickListener(click_target);
+  }
   if (listener == nullptr) {
-    return "dispatched viewId=" + std::to_string(view_id) + " listener=0";
+    return "dispatched " + key + " listener=0";
   }
   // guest listener 注入派发：onClick(View)
   Value av{};
-  av.ref = target;
+  av.ref = click_target;
   if (!CallVirtual(*vm_state, listener, "onClick", {"Landroid/view/View;"}, "V", &av, 1,
                    nullptr)) {
-    std::string diag = "dispatch-error viewId=" + std::to_string(view_id);
+    std::string diag = "dispatch-error " + key;
     if (vm_state->HasPendingException() && vm_state->pending_exception != nullptr) {
       dexvm::runtime::ObjHeader* ex = vm_state->pending_exception;
       if (ex->klass != nullptr) {
@@ -2091,7 +2177,51 @@ std::string InjectGuestClick(VMState* vm_state, int32_t view_id) {
     }
     return diag;
   }
-  return "dispatched viewId=" + std::to_string(view_id) + " listener=1";
+  return "dispatched " + key + " listener=1";
+}
+
+}  // namespace
+
+std::string InjectGuestClick(VMState* vm_state, int32_t view_id) {
+  // 会话外（设备侧宿主点击时 guest VM 通常已收场）：只回通路状态，不触 guest 堆。
+  if (vm_state == nullptr) {
+    return "channel-ok viewId=" + std::to_string(view_id) + " guest-session=absent";
+  }
+  // viewId -> 登记的 guest view（mId 实时匹配；只认当前快照树内活视图）
+  VObject* target = nullptr;
+  for (auto& kv : ClickRegistry()) {
+    const ClickEntry& e = kv.second;
+    if (!IsLiveClickEntry(e)) continue;
+    VField* f = FindInstanceField(e.view->klass, "mId");
+    if (f != nullptr && GetIField(e.view, f->offset) == view_id) {
+      target = e.view;
+      break;
+    }
+  }
+  if (target == nullptr) {
+    return "no-view viewId=" + std::to_string(view_id);
+  }
+  return DispatchGuestClick(vm_state, target, "viewId=" + std::to_string(view_id));
+}
+
+std::string InjectGuestObjectClick(VMState* vm_state, uint32_t object_id) {
+  if (vm_state == nullptr) {
+    return "channel-ok objectId=" + std::to_string(object_id) + " guest-session=absent";
+  }
+  // object_id 是快照 handle 的 guest View 身份（mId 为 0 的视图无法按 id 寻址：
+  // 多个无 id View 都会命中同一条 mId==0 记录，派发到已被回收的监听器）。
+  VObject* target = nullptr;
+  for (auto& kv : ClickRegistry()) {
+    const ClickEntry& e = kv.second;
+    if (IsLiveClickEntry(e) && e.object_id == object_id) {
+      target = e.view;
+      break;
+    }
+  }
+  if (target == nullptr) {
+    return "no-view objectId=" + std::to_string(object_id);
+  }
+  return DispatchGuestClick(vm_state, target, "objectId=" + std::to_string(object_id));
 }
 
 }  // namespace dexvm::bridge

@@ -323,6 +323,7 @@ struct ApkSessionState {
   bool active = false;
   bool stop_requested = false;
   int32_t pending_click = -1;
+  uint32_t pending_object_click = 0;  // 快照 handle.object_id（0 = 无待处理点击）
   std::deque<std::vector<uint8_t>> frames;  // UIBridge envelope 有序队列（full+patch）
 };
 ApkSessionState g_session_state;
@@ -330,7 +331,7 @@ ApkSessionState g_session_state;
 bool SessionWakePred(void* arg) {
   auto* s = static_cast<ApkSessionState*>(arg);
   std::lock_guard<std::mutex> lk(s->mu);
-  return s->stop_requested || s->pending_click >= 0;
+  return s->stop_requested || s->pending_click >= 0 || s->pending_object_click != 0;
 }
 
 // M4.1/M4.2 设备化入口：引导 VM 跑目标 APK 全生命周期链 + 首帧管线
@@ -2764,6 +2765,7 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
           g_session_state.active = true;
           g_session_state.stop_requested = false;
           g_session_state.pending_click = -1;
+          g_session_state.pending_object_click = 0;
           g_session_state.frames.clear();
           // 首帧全量 envelope 入队（宿主从 full 基线开始物化）
           g_session_state.frames.push_back(run->ui->last_view_tree());
@@ -2776,14 +2778,21 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
         const dexvm::runtime::GuestSchedOps* sched = dexvm::runtime::GuestSched();
         while (true) {
           int32_t click = -1;
+          uint32_t object_click = 0;
           bool stop = false;
           {
             std::lock_guard<std::mutex> lk(g_session_state.mu);
             click = g_session_state.pending_click;
+            object_click = g_session_state.pending_object_click;
             g_session_state.pending_click = -1;
+            g_session_state.pending_object_click = 0;
             stop = g_session_state.stop_requested;
           }
-          if (click >= 0) {
+          if (object_click != 0) {
+            std::string click_status = dexvm::bridge::InjectGuestObjectClick(&s, object_click);
+            ProgressAppend("session click objectId=" + std::to_string(object_click) + ": " +
+                           click_status);
+          } else if (click >= 0) {
             std::string click_status = dexvm::bridge::InjectGuestClick(&s, click);
             ProgressAppend("session click " + std::to_string(click) + ": " + click_status);
           }
@@ -5012,6 +5021,17 @@ extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueClick(
   std::lock_guard<std::mutex> lk(g_session_state.mu);
   if (!g_session_state.active) return false;
   g_session_state.pending_click = view_id;
+  return true;
+}
+
+// 按快照 handle.object_id 入队的点击（ui_bridge_jni.cc 调用）。object_id
+// 是 guest View 身份，mId==0 的视图也能精确寻址。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueObjectClick(
+    uint32_t object_id) {
+  if (object_id == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_object_click = object_id;
   return true;
 }
 

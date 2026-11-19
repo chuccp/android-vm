@@ -883,6 +883,8 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
   (void)state;
   ViewSnapshot snap;
   if (content_view == nullptr) return snap;
+  // 点击登记表代号推进（walk 到的视图标记为本代活视图；离树旧视图随后淘汰）。
+  BeginGuestSnapshotWalk();
   std::map<uint32_t, VObject*> used_ids;
   std::function<void(VObject*, uint32_t, uint32_t)> walk =
       [&](VObject* view, uint32_t parent_id, uint32_t child_index) {
@@ -920,7 +922,7 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
           add(kPropText,
               PropValue::String(Utf16ToUtf8(text->chars(), text->length)));
         }
-        NoteGuestView(view);  // viewId -> view 映射（点击回灌查路）
+        NoteGuestView(view, object_id);  // object_id -> view 映射（点击回灌查路）
         add(kPropVisibility, PropValue::Int(ViewI(view, "mVisibility")));
         add(kPropBounds, PropValue::Rect(ViewI(view, "mLeft"), ViewI(view, "mTop"),
                                          ViewI(view, "mRight"), ViewI(view, "mBottom")));
@@ -990,6 +992,7 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
       };
   walk(content_view, kNoObject, 0);
   RebuildChildren(snap);  // children 向量（由 parent_id 重建）
+  EndGuestSnapshotWalk();
   return snap;
 }
 

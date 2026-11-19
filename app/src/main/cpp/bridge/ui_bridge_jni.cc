@@ -48,6 +48,7 @@ Java_com_dexvm_host_NativeBridge_nativeGetViewSnapshot(JNIEnv* env, jclass) {
 // 常驻会话点击入队（runtime_contract.cpp：活会话内由会话线程派发 guest
 // listener；返回 false = 无活会话）。
 extern "C" bool DexVmSessionEnqueueClick(int32_t view_id);
+extern "C" bool DexVmSessionEnqueueObjectClick(uint32_t object_id);
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_dexvm_host_NativeBridge_nativeDispatchViewClick(JNIEnv* env, jclass, jint view_id) {
@@ -58,6 +59,21 @@ Java_com_dexvm_host_NativeBridge_nativeDispatchViewClick(JNIEnv* env, jclass, ji
   } else {
     // 会话外探测形态（vm_state = null）：通路确认 + 登记计数，不触 guest 堆。
     status = dexvm::bridge::InjectGuestClick(nullptr, view_id);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
+// 按快照 handle.object_id 的点击入队（宿主物化器推荐路径：guest View 身份
+// 稳定，mId==0 的视图不会误命中其它无 id View）。
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchViewObjectClick(JNIEnv* env, jclass,
+                                                               jint object_id) {
+  uint32_t id = static_cast<uint32_t>(object_id);
+  std::string status;
+  if (DexVmSessionEnqueueObjectClick(id)) {
+    status = "queued objectId=" + std::to_string(id);
+  } else {
+    status = dexvm::bridge::InjectGuestObjectClick(nullptr, id);
   }
   return env->functions->NewStringUTF(env, status.c_str());
 }

@@ -461,6 +461,7 @@ Value StrOffsetByCodePoints(VMState& state, VObject* self, const Value* args, si
 Value StrRegionMatches(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value StrReplaceChar(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value StrReplaceAll(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value StrReplaceFirst(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value StrReplaceSeq(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value StrSplit(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value StrSplitLimit(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
