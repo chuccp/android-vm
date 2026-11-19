@@ -137,6 +137,29 @@ Value SysArraycopy(VMState& state, VObject* self, const Value* args, size_t n, b
       return Value{};
     }
   }
+  if (src == dst) {
+    // 同一数组重叠拷贝：Java 语义等价于「先复制到临时数组再写回」。
+    // 必须 memmove（前向逐元素拷贝会在 dst_pos > src_pos 时把源区间已被
+    // 覆盖的数据再拷出去；SparseArray.put/ArrayList.add 的中间插入全靠
+    // 这条语义，前向拷贝会复制重复项并丢失原元素）。
+    if (!sc->is_primitive) {
+      for (int32_t i = 0; i < length; i++) {
+        ObjHeader* e = ArrRef(src, src_pos + i);
+        if (e != nullptr && e->klass != nullptr && !dc->IsAssignableFrom(e->klass)) {
+          state.ThrowNew("Ljava/lang/ArrayStoreException;",
+                         (e->klass->descriptor + " into " + dk->descriptor));
+          *ok = false;
+          return Value{};
+        }
+      }
+    }
+    if (length > 0) {
+      std::memmove(dst->data() + static_cast<size_t>(dst_pos) * 8,
+                   src->data() + static_cast<size_t>(src_pos) * 8,
+                   static_cast<size_t>(length) * 8);
+    }
+    return Value{};
+  }
   for (int32_t i = 0; i < length; i++) {
     ObjHeader* e = ArrRef(src, src_pos + i);
     if (!sc->is_primitive && e != nullptr && e->klass != nullptr && !dc->IsAssignableFrom(e->klass)) {

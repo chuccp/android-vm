@@ -121,6 +121,22 @@ public final class RuntimeCollections {
         return copied[1] + copied[2];
     }
 
+    /** 同数组重叠 arraycopy（右移）与 ArrayList 中间插入：必须是 memmove 语义。 */
+    public static int overlapCopyFlow() {
+        int[] values = {1, 2, 3, 4, 5};
+        System.arraycopy(values, 0, values, 1, 4);
+        boolean ok = values[0] == 1 && values[1] == 1 && values[2] == 2
+                && values[3] == 3 && values[4] == 4;
+        List<Integer> list = new ArrayList<>();
+        list.add(1);
+        list.add(2);
+        list.add(3);
+        list.add(0, 9);
+        ok &= list.size() == 4 && list.get(0) == 9 && list.get(1) == 1
+                && list.get(2) == 2 && list.get(3) == 3;
+        return ok ? 193 : 0;
+    }
+
     public static int wideArrayFlow() {
         long[] values = {2L, 3L, 4L};
         long total = 0;

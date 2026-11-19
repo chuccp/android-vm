@@ -58,6 +58,8 @@ inline constexpr TargetExamProbe kTargetExamProbes[] = {
      192, "Atomic CAS + System.arraycopy"},
     {1, "Lcom/coke/target/RuntimeCollections;", "arrayFlow", nullptr, nullptr, 0, 0, "I", true, 5,
      "Arrays.sort"},
+    {1, "Lcom/coke/target/RuntimeCollections;", "overlapCopyFlow", nullptr, nullptr, 0, 0, "I",
+     true, 193, "overlap arraycopy"},
     // 挂起式 <clinit>（协作调度保返回值）
     {1, "Lcom/coke/target/RuntimeSuspendingInitFixture;", "flow", nullptr, nullptr, 0, 0, "I",
      false, 107, "suspending clinit"},

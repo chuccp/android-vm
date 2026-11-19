@@ -3256,6 +3256,7 @@ bool ExecuteFrame(VMState& state, Frame& frame) {
         }
         const bool dbg_sget = f->declaring != nullptr &&
                               f->declaring->descriptor.find("US_ASCII") != std::string::npos;
+#if defined(__ANDROID__)
         if (dbg_sget) {
           std::string fs;
           const GuestSchedOps* gs = GuestSched();
@@ -3275,6 +3276,9 @@ bool ExecuteFrame(VMState& state, Frame& frame) {
                               static_cast<int>(f->declaring->status), f->offset,
                               f->declaring->static_storage.size(), fs.c_str());
         }
+#else
+        (void)dbg_sget;
+#endif
         if (!EnsureClassInitialized(state, f->declaring)) continue;
         VClass* decl = f->declaring;
         if (decl == nullptr || f->offset >= decl->static_storage.size()) {

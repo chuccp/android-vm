@@ -113,6 +113,7 @@ const Probe kProbes[] = {
     {"Lcom/coke/target/RuntimeCollections;", "concurrentFlow", {}, "I", true, 32, false, ""},
     {"Lcom/coke/target/RuntimeCollections;", "atomicFlow", {}, "I", true, 192, false, ""},
     {"Lcom/coke/target/RuntimeCollections;", "arrayFlow", {}, "I", true, 5, false, ""},
+    {"Lcom/coke/target/RuntimeCollections;", "overlapCopyFlow", {}, "I", true, 193, false, ""},
     // ---- 反射 / Unsafe / 加密 / 数学 / 随机 / Intent（长尾面；缺口已闭合翻断言） ----
     {"Lcom/coke/target/RuntimeReflectionFixture;", "reflectionFlow", {}, "I", false, 93, false, ""},
     {"Lcom/coke/target/RuntimeUnsafeFixture;", "unsafeFlow", {}, "I", false, 94, false, ""},
