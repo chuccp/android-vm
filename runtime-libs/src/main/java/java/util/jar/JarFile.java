@@ -209,11 +209,28 @@ class JarFile extends ZipFile {
     }
 
     public Enumeration<JarEntry> entries() {
-        return JUZFA.entries(this, JarFileEntry::new);
+        // 不经 JUZFA：jdk.internal.misc.SharedSecrets 的缺省访问面实现以
+        // jar.entries() 为源（本 VM 的 sun-compat 补源），再回调会自递归
+        // （JarFile.entries → JUZFA.entries → JarFile.entries …，栈溢出）。
+        // 直接以 ZipFile 记录序为源：super.entries() 是 invokespecial，
+        // 绕过本类覆写；条目名经 JarFileEntry 包装（版本化语义保持在条目内）。
+        final Enumeration<? extends ZipEntry> raw = super.entries();
+        return new Enumeration<JarEntry>() {
+            @Override
+            public boolean hasMoreElements() {
+                return raw.hasMoreElements();
+            }
+
+            @Override
+            public JarEntry nextElement() {
+                return new JarFileEntry(raw.nextElement().getName());
+            }
+        };
     }
 
     public Stream<JarEntry> stream() {
-        return JUZFA.stream(this, JarFileEntry::new);
+        // 同 entries()：JUZFA.stream 缺省实现回调 jar.stream() 亦自递归。
+        return Collections.list(entries()).stream();
     }
 
     public Stream<JarEntry> versionedStream() {

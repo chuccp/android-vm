@@ -121,22 +121,35 @@ std::u16string Utf8ToUtf16(const std::string& s) {
 // Res_value dimension complex -> px（guest 像素面 1:1；dp/sp 密度近似 1.0，
 // 与桥接 540x960 guest 像素窗口径一致）。
 float ComplexToFloat(uint32_t data) {
-  return static_cast<float>(static_cast<int32_t>(data & 0xFFFFFF00u)) / 256.0f;
+  // AOSP TypedValue.complexToFloat：24 位尾数 × RADIX_MULTS[radix]。
+  // 之前忽略 radix（一律 /256），@dimen 引用（0.5dp = 0x40000031，
+  // radix=3）被解成 4194304px——tab_divider 等尺寸资源全量放大。
+  static constexpr float kRadixMults[4] = {
+      1.0f / 256.0f,
+      1.0f / (256.0f * 128.0f),
+      1.0f / (256.0f * 32768.0f),
+      1.0f / (256.0f * 8388608.0f),
+  };
+  const int32_t mantissa = static_cast<int32_t>(data & 0xFFFFFF00u);
+  const int radix = static_cast<int>((data >> 4) & 0x3);
+  return static_cast<float>(mantissa) * kRadixMults[radix];
 }
 
 float DimensionToPx(uint32_t data) {
   const int unit = static_cast<int>(data & 0xF);
   const float v = ComplexToFloat(data);
+  // guest DisplayMetrics：density/scaledDensity=2.0、densityDpi=320
+  // （framework_app ResDisplayMetrics 同源），dp/sp 必须折算成 px。
   switch (unit) {
     case 1:  // dp
     case 2:  // sp
-      return v;
+      return v * 2.0f;
     case 3:  // pt
-      return v * 160.0f / 72.0f;
+      return v * 320.0f / 72.0f;
     case 4:  // in
-      return v * 160.0f;
+      return v * 320.0f;
     case 5:  // mm
-      return v * 160.0f / 25.4f;
+      return v * 320.0f / 25.4f;
     default:  // px
       return v;
   }
@@ -297,6 +310,28 @@ bool ResolveColorValue(InflateContext& ctx, const session::XmlResAttr& attr, int
   }
 }
 
+bool ResolveFloatValue(InflateContext& ctx, const session::XmlResAttr& attr, float* out) {
+  ResolvedValue v;
+  if (!ResolveAttrValue(ctx, attr, &v)) return false;
+  switch (v.type) {
+    case kValueFloat: {
+      float f = 0;
+      std::memcpy(&f, &v.data, sizeof(f));
+      *out = f;
+      return true;
+    }
+    case 0x10:  // TYPE_INT_DEC
+    case 0x11:  // TYPE_INT_HEX
+      *out = static_cast<float>(static_cast<int32_t>(v.data));
+      return true;
+    case kValueDimension:
+      *out = DimensionToPx(v.data);
+      return true;
+    default:
+      return false;
+  }
+}
+
 bool ResolveDimensionPx(InflateContext& ctx, const session::XmlResAttr& attr, float* out) {
   ResolvedValue v;
   if (!ResolveAttrValue(ctx, attr, &v)) return false;
@@ -327,8 +362,10 @@ bool ResolveSizeValue(InflateContext& ctx, const session::XmlResAttr& attr, int3
     return true;
   }
   if (v.type == kValueDimension || v.type == kValueFraction) {
-    float px = DimensionToPx(v.data);
-    *out = px == 0.0f ? kMatchParent : static_cast<int32_t>(std::lround(px));
+    // 0dp 保持 0：真实 ConstraintLayout 的 0dp = MATCH_CONSTRAINT，由
+    // ConstraintLayout 自己按约束求解。只有"未知 tag 近似 LinearLayout"的
+    // 容器才把 0dp 折算成 MATCH_PARENT（见调用点 constraint_approx）。
+    *out = static_cast<int32_t>(std::lround(DimensionToPx(v.data)));
     return true;
   }
   return false;
@@ -488,12 +525,61 @@ VObject* NewView(InflateContext& ctx, VClass* klass) {
 struct LayoutOverrides {
   int32_t width = kWrapContent;
   int32_t height = kWrapContent;
+  float weight = 0.0f;
   int32_t margin_left = 0;
   int32_t margin_top = 0;
   int32_t margin_right = 0;
   int32_t margin_bottom = 0;
+  int32_t visibility = -1;  // -1 = 未指定；0/4/8 = View 常量
+  std::string behavior;     // CoordinatorLayout layout_behavior 类名（点分）
+  // ConstraintLayout 约束面：app:layout_constraint* -> LayoutParams 字段。
+  std::vector<std::pair<std::string, int32_t>> constraint_ints;
+  std::vector<std::pair<std::string, float>> constraint_floats;
+  std::string dimension_ratio;
   bool any = false;
 };
+
+// 约束属性名 -> ConstraintLayout.LayoutParams int 字段（androidx 字段名）。
+const char* ConstraintIntField(std::string_view n) {
+  if (n == "layout_constraintLeft_toLeftOf") return "leftToLeft";
+  if (n == "layout_constraintLeft_toRightOf") return "leftToRight";
+  if (n == "layout_constraintRight_toLeftOf") return "rightToLeft";
+  if (n == "layout_constraintRight_toRightOf") return "rightToRight";
+  if (n == "layout_constraintStart_toStartOf") return "startToStart";
+  if (n == "layout_constraintStart_toEndOf") return "startToEnd";
+  if (n == "layout_constraintEnd_toStartOf") return "endToStart";
+  if (n == "layout_constraintEnd_toEndOf") return "endToEnd";
+  if (n == "layout_constraintTop_toTopOf") return "topToTop";
+  if (n == "layout_constraintTop_toBottomOf") return "topToBottom";
+  if (n == "layout_constraintBottom_toTopOf") return "bottomToTop";
+  if (n == "layout_constraintBottom_toBottomOf") return "bottomToBottom";
+  if (n == "layout_constraintBaseline_toBaselineOf") return "baselineToBaseline";
+  if (n == "layout_constraintWidth_default") return "matchConstraintDefaultWidth";
+  if (n == "layout_constraintHeight_default") return "matchConstraintDefaultHeight";
+  if (n == "layout_constraintHorizontal_chainStyle") return "horizontalChainStyle";
+  if (n == "layout_constraintVertical_chainStyle") return "verticalChainStyle";
+  return nullptr;
+}
+
+// 约束属性名 -> 尺寸型 int 字段（px）。
+const char* ConstraintDimField(std::string_view n) {
+  if (n == "layout_constraintWidth_min") return "matchConstraintMinWidth";
+  if (n == "layout_constraintWidth_max") return "matchConstraintMaxWidth";
+  if (n == "layout_constraintHeight_min") return "matchConstraintMinHeight";
+  if (n == "layout_constraintHeight_max") return "matchConstraintMaxHeight";
+  return nullptr;
+}
+
+// 约束属性名 -> float 字段。
+const char* ConstraintFloatField(std::string_view n) {
+  if (n == "layout_constraintHorizontal_bias") return "horizontalBias";
+  if (n == "layout_constraintVertical_bias") return "verticalBias";
+  if (n == "layout_constraintHorizontal_weight") return "horizontalWeight";
+  if (n == "layout_constraintVertical_weight") return "verticalWeight";
+  if (n == "layout_constraintWidth_percent") return "matchConstraintPercentWidth";
+  if (n == "layout_constraintHeight_percent") return "matchConstraintPercentHeight";
+  return nullptr;
+}
 
 // 协变返回覆写查找：generateLayoutParams 家族子类覆写返回更具体的 LP 类型
 // （AppBarLayout.LayoutParams 等），与探针的 ViewGroup$LayoutParams 精确签名
@@ -508,6 +594,63 @@ VMethod* FindCovariantMethod(VClass* klass, const char* name,
       if (!m.IsStatic() && m.name == name && m.param_types == params) return &m;
   }
   return nullptr;
+}
+
+// CoordinatorLayout 子项 Behavior 接线（app:layout_behavior=@string/类名）。
+// AOSP 由 CoordinatorLayout.LayoutParams(AttributeSet) 解析并 setBehavior；
+// VM 的 generateLayoutParams(AttributeSet=null) 拿不到属性——这里补上，
+// 否则 ScrollingViewBehavior 缺失，滚动内容与 AppBar 重叠（首帧白屏根因）。
+void ApplyCoordinatorBehavior(InflateContext& ctx, VObject* lp, const std::string& dotted) {
+  if (lp == nullptr || dotted.empty()) return;
+  std::string desc = "L";
+  desc.reserve(dotted.size() + 2);
+  for (char c : dotted) desc.push_back(c == '.' ? '/' : c);
+  desc.push_back(';');
+  bool cr_ok = true;
+  VObject* behavior = NewLibObject(ctx.state, desc.c_str(), {}, nullptr, 0, &cr_ok);
+  if (behavior == nullptr) {
+    ctx.state.ClearException();
+    Value cargs[2] = {};
+    cargs[0].ref = ctx.activity;
+    cargs[1].ref = nullptr;
+    cr_ok = true;
+    behavior = NewLibObject(ctx.state, desc.c_str(),
+                            {"Landroid/content/Context;", "Landroid/util/AttributeSet;"}, cargs,
+                            2, &cr_ok);
+  }
+#if defined(__ANDROID__)
+  if (behavior == nullptr) {
+    ctx.state.ClearException();
+    __android_log_print(ANDROID_LOG_INFO, "DexVmInflate", "behavior ctor failed %s",
+                        desc.c_str());
+    return;
+  }
+#endif
+  VMethod* set = nullptr;
+  for (VClass* k = lp->klass; k != nullptr && set == nullptr; k = k->super_class) {
+    for (auto& m : k->virtual_methods) {
+      if (m.name == "setBehavior" && m.param_types.size() == 1) {
+        set = &m;
+        break;
+      }
+    }
+    for (auto& m : k->direct_methods) {
+      if (set != nullptr) break;
+      if (m.name == "setBehavior" && m.param_types.size() == 1) set = &m;
+    }
+  }
+  if (set == nullptr) {
+#if defined(__ANDROID__)
+    __android_log_print(ANDROID_LOG_INFO, "DexVmInflate", "behavior setter missing %s lp=%s",
+                        desc.c_str(), lp->klass != nullptr ? lp->klass->descriptor.c_str() : "?");
+#endif
+    return;
+  }
+  Value av[2] = {};
+  av[0].ref = lp;
+  av[1].ref = behavior;
+  Value rv{};
+  if (!InvokeMethod(ctx.state, set, av, 2, &rv)) ctx.state.ClearException();
 }
 
 void SetChildLayoutParams(InflateContext& ctx, VObject* parent, VObject* view,
@@ -574,6 +717,18 @@ void SetChildLayoutParams(InflateContext& ctx, VObject* parent, VObject* view,
   if (lp == nullptr) return;
   SetIntFieldByName(lp, "width", ov.width);
   SetIntFieldByName(lp, "height", ov.height);
+  SetFloatFieldByName(lp, "weight", ov.weight);
+  for (const auto& ci : ov.constraint_ints) SetIntFieldByName(lp, ci.first.c_str(), ci.second);
+  for (const auto& cf : ov.constraint_floats) {
+    SetFloatFieldByName(lp, cf.first.c_str(), cf.second);
+  }
+  if (!ov.dimension_ratio.empty()) {
+    if (VField* rf = FindFieldInChain(lp->klass, "dimensionRatio")) {
+      VString* s = ctx.state.linker->AllocString(
+          std::u16string(ov.dimension_ratio.begin(), ov.dimension_ratio.end()));
+      SetRefField(lp, rf->offset, reinterpret_cast<ObjHeader*>(s));
+    }
+  }
   SetIntFieldByName(lp, "leftMargin", ov.margin_left);
   SetIntFieldByName(lp, "topMargin", ov.margin_top);
   SetIntFieldByName(lp, "rightMargin", ov.margin_right);
@@ -581,6 +736,7 @@ void SetChildLayoutParams(InflateContext& ctx, VObject* parent, VObject* view,
   if (VField* f = FindFieldInChain(view->klass, "mLayoutParams")) {
     SetRefField(view, f->offset, reinterpret_cast<ObjHeader*>(lp));
   }
+  ApplyCoordinatorBehavior(ctx, lp, ov.behavior);
 }
 
 // AOSP LayoutInflater.createView 第一步：Factory2/Factory 咨询。
@@ -749,6 +905,17 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
           } else if (name == "layout_height") {
             ResolveSizeValue(ctx, attr, &inc_ov.height);
             inc_ov.any = true;
+          } else if (name == "layout_weight") {
+            float w = 0.0f;
+            if (ResolveFloatValue(ctx, attr, &w)) {
+              inc_ov.weight = w;
+              inc_ov.any = true;
+            }
+          } else if (name == "visibility") {
+            // <include> 的 visibility 作用于被包含布局根（AOSP inflate 语义）。
+            int32_t vis = ResolveIntValue(ctx, attr, 0);
+            inc_ov.visibility = vis == 1 ? 4 : vis == 2 ? 8 : 0;
+            inc_ov.any = true;
           } else if (name == "layout_marginTop") {
             float px = 0;
             if (ResolveDimensionPx(ctx, attr, &px)) {
@@ -792,6 +959,9 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
         if (nested_root != nullptr) {
           LayoutOverrides effective = inc_ov.any ? inc_ov : nested_ov;
           SetChildLayoutParams(ctx, container, nested_root, effective);
+          if (inc_ov.visibility >= 0) {
+            SetIntFieldByName(nested_root, "mVisibility", inc_ov.visibility);
+          }
           if (root == nullptr && container == parent) root = nested_root;
         }
         continue;
@@ -913,10 +1083,47 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
           SetIntFieldByName(view, "mProgress", progress);
         } else if (name == "layout_width") {
           ResolveSizeValue(ctx, attr, &ov.width);
+          if (constraint_approx && ov.width == 0) ov.width = kMatchParent;
           ov.any = true;
         } else if (name == "layout_height") {
           ResolveSizeValue(ctx, attr, &ov.height);
+          if (constraint_approx && ov.height == 0) ov.height = kMatchParent;
           ov.any = true;
+        } else if (name == "layout_weight") {
+          // AOSP LinearLayout 主轴权重：0dp + weight=1 是"占满剩余空间"，
+          // 缺失时 0dp 直接按 EXACTLY(0) 测量（搜索栏宽度 0 根因）。
+          float w = 0.0f;
+          if (ResolveFloatValue(ctx, attr, &w)) {
+            ov.weight = w;
+            ov.any = true;
+          }
+        } else if (name == "layout_behavior") {
+          // CoordinatorLayout Behavior（字符串资源即行为类全名）。
+          std::string s;
+          if (ResolveStringValue(ctx, attr, &s) && !s.empty()) ov.behavior = s;
+        } else if (name.rfind("layout_constraint", 0) == 0) {
+          // ConstraintLayout 约束：generateLayoutParams(AttributeSet=null) 拿不到
+          // 属性，直接把 app:layout_constraint* 落 LP 字段（androidx 字段名）。
+          if (const char* f = ConstraintIntField(name)) {
+            int32_t v = -1;
+            if (attr.value_type == kValueReference) {
+              v = static_cast<int32_t>(attr.value_data);
+            } else {
+              v = ResolveIntValue(ctx, attr, -1);
+            }
+            if (v >= 0) ov.constraint_ints.emplace_back(f, v);
+          } else if (const char* df = ConstraintDimField(name)) {
+            float px = 0;
+            if (ResolveDimensionPx(ctx, attr, &px)) {
+              ov.constraint_ints.emplace_back(df, static_cast<int32_t>(std::lround(px)));
+            }
+          } else if (const char* ff = ConstraintFloatField(name)) {
+            float f = 0;
+            if (ResolveFloatValue(ctx, attr, &f)) ov.constraint_floats.emplace_back(ff, f);
+          } else if (name == "layout_constraintDimensionRatio") {
+            std::string s;
+            if (ResolveStringValue(ctx, attr, &s)) ov.dimension_ratio = s;
+          }
         } else if (name == "layout_marginTop") {
           float px = 0;
           if (ResolveDimensionPx(ctx, attr, &px)) {

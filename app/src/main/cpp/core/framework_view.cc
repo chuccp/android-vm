@@ -413,6 +413,21 @@ Value VGAddView(VMState& state, VObject* self, const Value* args, size_t n, bool
   SetArrRef(arr, index, args[0].ref);
   for (int32_t i = index; i < count; i++) SetArrRef(arr, i + 1, GetArrRef(old, i));
   SetRefField(self, f->offset, reinterpret_cast<ObjHeader*>(arr));
+  // AOSP ViewGroup.addViewInner：onViewAdded(child) 钩子（ConstraintLayout
+  // 在此维护 mChildrenByIds——缺失会导致约束目标查不到、整棵约束树按
+  // MATCH_PARENT 兜底，TopNavigator 等高度吃满）。
+  {
+    Value added{};
+    added.ref = args[0].ref;
+    Value ignored{};
+    bool hook_ok = CallVirtual(state, self, "onViewAdded", {"Landroid/view/View;"}, "V", &added, 1,
+                               &ignored);
+    if (!hook_ok) {
+      // VM 语义缺口（如 ViewPager2 内部 RecyclerView 识别）不应让 addView
+      // 整体失败：钩子异常按诊断面吞掉（异常已由 DexVmThrow 记录）。
+      state.ClearException();
+    }
+  }
   // 已附着树内新增子 View：AOSP 立即分发 attach/窗口可见性（BottomNav 等
   // 自定义导航在 onAttachedToWindow/onWindowVisibilityChanged 里启动控制器）。
   if (GuestViewAttached() && args[0].ref != nullptr) {
@@ -961,7 +976,14 @@ Value ViewSetVisibility(VMState& state, VObject* self, const Value* args, size_t
   *ok = true;
   if (n >= 1) {
     VField* f = FindInstanceField(self->klass, "mVisibility");
-    if (f != nullptr) SetIField(self, f->offset, args[0].i);
+    if (f != nullptr) {
+      int32_t old = GetIField(self, f->offset);
+      SetIField(self, f->offset, args[0].i);
+      // AOSP setVisibility：值变化 -> requestLayout/invalidate（下一帧
+      // traversal）。缺此钩子时 XML 里 GONE、运行期转 VISIBLE 的控件
+      // （TopNavigator tab、延迟加载区块）永远保持 0x0。
+      if (old != args[0].i) RequestGuestLayout();
+    }
   }
   return Value{};
 }

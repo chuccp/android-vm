@@ -58,6 +58,27 @@ public class ImageView extends View {
         this.mDrawable = drawable;
     }
 
+    /**
+     * AOSP ImageView.onMeasure 近似：内容尺寸 = drawable 固有尺寸 + padding，
+     * 经 resolveSize 收敛。无 drawable 的 wrap_content 图片收为 0（若不覆写，
+     * 会落到 View.onMeasure 的 getDefaultSize——AT_MOST 下直接吃满父约束，
+     * 底部导航背景图把导航容器撑成全屏的根因）。
+     */
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        int w = getPaddingLeft() + getPaddingRight();
+        int h = getPaddingTop() + getPaddingBottom();
+        Drawable d = this.mDrawable;
+        if (d != null) {
+            int dw = d.getIntrinsicWidth();
+            int dh = d.getIntrinsicHeight();
+            if (dw > 0) w += dw;
+            if (dh > 0) h += dh;
+        }
+        setMeasuredDimension(resolveSize(w, widthMeasureSpec),
+                resolveSize(h, heightMeasureSpec));
+    }
+
     public void setImageBitmap(Bitmap bm) {
         this.mDrawable = null;
     }

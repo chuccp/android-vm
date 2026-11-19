@@ -585,8 +585,10 @@ int32_t ChildMeasureSpecFull(int32_t parent_spec, int32_t padding, int32_t margi
   if (size < 0) size = 0;
   if (child_dimension >= 0) return MakeMeasureSpec(child_dimension, kExactly);
   if (child_dimension == -1) {  // MATCH_PARENT
-    return parent_mode == kUnspecified ? MakeMeasureSpec(0, kUnspecified)
-                                       : MakeMeasureSpec(size, kExactly);
+    // AOSP getChildMeasureSpec：父 AT_MOST 时 match_parent 子项也是 AT_MOST
+    // （可选范围而非强制相等）；只有父 EXACTLY 才下传 EXACTLY。
+    if (parent_mode == kUnspecified) return MakeMeasureSpec(0, kUnspecified);
+    return MakeMeasureSpec(size, parent_mode == kExactly ? kExactly : kAtMost);
   }
   // WRAP_CONTENT
   return parent_mode == kUnspecified ? MakeMeasureSpec(0, kUnspecified)
@@ -605,12 +607,17 @@ Value VGMeasureChildWithMargins(VMState& state, VObject* self, const Value* args
   }
   VObject* child = reinterpret_cast<VObject*>(const_cast<ObjHeader*>(args[0].ref));
   ChildLp lp = ReadChildLp(child);
-  int32_t wspec = ChildMeasureSpecFull(args[2].i,
+  // AOSP ViewGroup.measureChildWithMargins(child, parentWidthSpec, widthUsed,
+  // parentHeightSpec, heightUsed)：参数位是 (1=wSpec, 2=wUsed, 3=hSpec, 4=hUsed)。
+  // 之前把 args[2]/args[4]（used）当父 spec → 子项收到 UNSPECIFIED(0)，
+  // LinearLayoutCompat/DrawerLayout 等整棵子树高度塌成 0（BottomNav 覆盖层
+  // 反被绝对布局撑成全屏的根因）。
+  int32_t wspec = ChildMeasureSpecFull(args[1].i,
                                        ViewI(self, "mPaddingLeft") + ViewI(self, "mPaddingRight"),
-                                       lp.ml, lp.mr, args[1].i, lp.width);
-  int32_t hspec = ChildMeasureSpecFull(args[4].i,
+                                       lp.ml, lp.mr, args[2].i, lp.width);
+  int32_t hspec = ChildMeasureSpecFull(args[3].i,
                                        ViewI(self, "mPaddingTop") + ViewI(self, "mPaddingBottom"),
-                                       lp.mt, lp.mb, args[3].i, lp.height);
+                                       lp.mt, lp.mb, args[4].i, lp.height);
   Value cargs[2] = {};
   cargs[0].i = wspec;
   cargs[1].i = hspec;
@@ -641,7 +648,9 @@ Value VGMeasureChild(VMState& state, VObject* self, const Value* args, size_t n,
 }
 
 
-// LinearLayout.onMeasure：纵向累加子 View（布局参数/边距感知；宽取最大 + padding）。
+// LinearLayout.onMeasure：AOSP 主轴口径——VERTICAL 累加高度、HORIZONTAL 累加
+// 宽度（此前不分方向一律纵向累加：AppBar 搜索行等水平容器第二个子项收到
+// AT_MOST(0) 高度，整行塌成 0 高）。权重按主轴分配剩余空间。
 Value LLOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   *ok = true;
   if (n < 2) {
@@ -657,39 +666,45 @@ Value LLOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bo
   int32_t content_w = GetSpecSize(wspec) - pad_l - pad_r;
   int32_t content_h = GetSpecSize(hspec) - pad_t - pad_b;
   if (content_w < 0) content_w = 0;
+  if (content_h < 0) content_h = 0;
+  int32_t orientation = ViewI(self, "mOrientation");
+  bool horizontal = orientation != 1;  // AOSP HORIZONTAL=0 / VERTICAL=1
   int32_t max_child_w = 0;
+  int32_t max_child_h = 0;
+  int32_t sum_child_w = 0;
   int32_t sum_child_h = 0;
   float total_weight = 0.0f;
   VArray* children = ViewChildren(self);
   if (children != nullptr) {
-    // 第一遍：非权重子 View 常规测量（权重子先占位）
+    // 第一遍：非权重子 View 常规测量（0dp + weight 主轴占位子跳过）
     for (int32_t i = 0; i < children->length; i++) {
       ObjHeader* ref = GetArrRef(children, i);
       if (ref == nullptr) continue;
       VObject* child = reinterpret_cast<VObject*>(ref);
       if (ViewI(child, "mVisibility") == 8) continue;  // GONE：不参与 measure（AOSP）
       ChildLp lp = ReadChildLp(child);
-      if (lp.weight > 0.0f && lp.height == 0) {
-        total_weight += lp.weight;  // 0dp + weight：高度由剩余空间分配
+      if (lp.weight > 0.0f && (horizontal ? lp.width : lp.height) == 0) {
+        total_weight += lp.weight;  // 0dp + weight：主轴剩余空间分配
         continue;
       }
       Value cargs[2] = {};
-      // AOSP getChildMeasureSpec 全口径：WRAP_CONTENT 在父约束有界时得
-      // AT_MOST(剩余)，而不是 UNSPECIFIED(0)——后者会让 ConstraintLayout 等
-      // 按"零可用空间"求解，整棵子树高度塌成 0（首帧 bounds0 根因）。
-      cargs[0].i = ChildMeasureSpecFull(wspec, pad_l + pad_r, lp.ml, lp.mr, 0, lp.width);
-      cargs[1].i =
-          ChildMeasureSpecFull(hspec, pad_t + pad_b, lp.mt, lp.mb, sum_child_h, lp.height);
+      // AOSP getChildMeasureSpec：主轴已用空间逐子扣减；交叉轴不做累加。
+      cargs[0].i = ChildMeasureSpecFull(wspec, pad_l + pad_r, lp.ml, lp.mr,
+                                        horizontal ? sum_child_w : 0, lp.width);
+      cargs[1].i = ChildMeasureSpecFull(hspec, pad_t + pad_b, lp.mt, lp.mb,
+                                        horizontal ? 0 : sum_child_h, lp.height);
       if (!CallVirtual(state, child, "measure", {"I", "I"}, "V", cargs, 2, nullptr)) {
         *ok = false;
         return Value{};
       }
       max_child_w = std::max(max_child_w, ViewI(child, "mMeasuredWidth") + lp.ml + lp.mr);
+      max_child_h = std::max(max_child_h, ViewI(child, "mMeasuredHeight") + lp.mt + lp.mb);
+      sum_child_w += lp.ml + ViewI(child, "mMeasuredWidth") + lp.mr;
       sum_child_h += lp.mt + ViewI(child, "mMeasuredHeight") + lp.mb;
     }
-    // 第二遍：权重子 View 分剩余高度（AOSP：剩余 = 父内容高 - 已用）
-    if (total_weight > 0.0f && GetSpecMode(hspec) != kUnspecified) {
-      int32_t remaining = content_h - sum_child_h;
+    // 第二遍：权重子 View 分主轴剩余空间（AOSP：剩余 = 父内容 - 已用）
+    if (total_weight > 0.0f) {
+      int32_t remaining = (horizontal ? content_w - sum_child_w : content_h - sum_child_h);
       if (remaining < 0) remaining = 0;
       for (int32_t i = 0; i < children->length; i++) {
         ObjHeader* ref = GetArrRef(children, i);
@@ -697,23 +712,31 @@ Value LLOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bo
         VObject* child = reinterpret_cast<VObject*>(ref);
         if (ViewI(child, "mVisibility") == 8) continue;
         ChildLp lp = ReadChildLp(child);
-        if (!(lp.weight > 0.0f && lp.height == 0)) continue;
-        int32_t child_h = static_cast<int32_t>(
+        if (!(lp.weight > 0.0f && (horizontal ? lp.width : lp.height) == 0)) continue;
+        int32_t share = static_cast<int32_t>(
             static_cast<float>(remaining) * (lp.weight / total_weight));
         Value cargs[2] = {};
-        cargs[0].i = ChildMeasureSpecFull(wspec, pad_l + pad_r, lp.ml, lp.mr, 0, lp.width);
-        cargs[1].i = MakeMeasureSpec(std::max(child_h - lp.mt - lp.mb, 0), kExactly);
+        cargs[0].i =
+            horizontal
+                ? MakeMeasureSpec(std::max(share - lp.ml - lp.mr, 0), kExactly)
+                : ChildMeasureSpecFull(wspec, pad_l + pad_r, lp.ml, lp.mr, 0, lp.width);
+        cargs[1].i =
+            horizontal
+                ? ChildMeasureSpecFull(hspec, pad_t + pad_b, lp.mt, lp.mb, 0, lp.height)
+                : MakeMeasureSpec(std::max(share - lp.mt - lp.mb, 0), kExactly);
         if (!CallVirtual(state, child, "measure", {"I", "I"}, "V", cargs, 2, nullptr)) {
           *ok = false;
           return Value{};
         }
         max_child_w = std::max(max_child_w, ViewI(child, "mMeasuredWidth") + lp.ml + lp.mr);
-        sum_child_h += lp.mt + ViewI(child, "mMeasuredHeight") + lp.mb;
+        max_child_h = std::max(max_child_h, ViewI(child, "mMeasuredHeight") + lp.mt + lp.mb);
+        if (horizontal) sum_child_w += lp.ml + ViewI(child, "mMeasuredWidth") + lp.mr;
+        else sum_child_h += lp.mt + ViewI(child, "mMeasuredHeight") + lp.mb;
       }
     }
   }
-  int32_t desired_w = max_child_w + pad_l + pad_r;
-  int32_t desired_h = sum_child_h + pad_t + pad_b;
+  int32_t desired_w = (horizontal ? sum_child_w : max_child_w) + pad_l + pad_r;
+  int32_t desired_h = (horizontal ? max_child_h : sum_child_h) + pad_t + pad_b;
   SetMeasured(self, ResolveSize(desired_w, wspec), ResolveSize(desired_h, hspec));
   return Value{};
 }
@@ -736,7 +759,12 @@ Value LLOnLayout(VMState& state, VObject* self, const Value* args, size_t n, boo
   int32_t content_w = r - l - pad_l - pad_r;
   if (content_w < 0) content_w = 0;
   int32_t gravity = ViewI(self, "mGravity");
+  int32_t content_h = ViewI(self, "mBottom") - ViewI(self, "mTop") - pad_t -
+                      ViewI(self, "mPaddingBottom");
+  if (content_h < 0) content_h = 0;
+  bool horizontal = ViewI(self, "mOrientation") != 1;
   int32_t y = t + pad_t;
+  int32_t x = l + pad_l;
   VArray* children = ViewChildren(self);
   if (children == nullptr) return Value{};
   for (int32_t i = 0; i < children->length; i++) {
@@ -747,28 +775,47 @@ Value LLOnLayout(VMState& state, VObject* self, const Value* args, size_t n, boo
     ChildLp lp = ReadChildLp(child);
     int32_t cw = ViewI(child, "mMeasuredWidth");
     int32_t ch = ViewI(child, "mMeasuredHeight");
-    int32_t x = l + pad_l + lp.ml;
-    if ((gravity & 0x1) != 0 && lp.width != -1) {  // Gravity.CENTER_HORIZONTAL
-      x = l + pad_l + std::max(0, (content_w - cw) / 2);
+    int32_t cx;
+    int32_t cy;
+    if (horizontal) {
+      // 主轴横向顺序摆放；交叉轴按子项 gravity 垂直居中/置底（AOSP 近似）。
+      cx = x + lp.ml;
+      cy = t + pad_t + lp.mt;
+      int32_t child_gravity = 0;
+      if (VObject* lpobj = reinterpret_cast<VObject*>(ViewRef(child, "mLayoutParams"))) {
+        child_gravity = ViewI(lpobj, "gravity");
+      }
+      if ((child_gravity & 0x10) != 0) {  // CENTER_VERTICAL
+        cy = t + pad_t + std::max(0, (content_h - ch) / 2);
+      }
+      x = cx + cw + lp.mr;
+    } else {
+      int32_t cxx = l + pad_l + lp.ml;
+      if ((gravity & 0x1) != 0 && lp.width != -1) {  // Gravity.CENTER_HORIZONTAL
+        cxx = l + pad_l + std::max(0, (content_w - cw) / 2);
+      }
+      cx = cxx;
+      cy = y + lp.mt;
+      y = cy + ch + lp.mb;
     }
-    int32_t cy = y + lp.mt;
     Value largs[4] = {};
-    largs[0].i = x;
+    largs[0].i = cx;
     largs[1].i = cy;
-    largs[2].i = x + cw;
+    largs[2].i = cx + cw;
     largs[3].i = cy + ch;
     if (!CallVirtual(state, child, "layout", {"I", "I", "I", "I"}, "V", largs, 4, nullptr)) {
       *ok = false;
       return Value{};
     }
-    y = cy + ch + lp.mb;
   }
   return Value{};
 }
 
-// 通用容器（FrameLayout/RelativeLayout/ScrollView 近似面）：子 View 按布局
-// 参数 measure，纵向顺序摆放（单子 Scene 语义精确；多子重叠规则不解释——
-// 资源布局靠桥接出画，约束/相对规则属近似面）。
+// 通用容器（FrameLayout/RelativeLayout/ScrollView 近似面）：AOSP FrameLayout
+// 口径——所有子项都以父内容区完整约束测量（used=0，重叠而非纵向累加），
+// 容器自身取子项包围盒最大值。此前把已用高度（sum_h）逐子扣减，第二个
+// 子项起收到 EXACTLY/AT_MOST(0) → 底部 Tab 容器/骨架/搜索栏整树塌成 0 高。
+// RelativeLayout 相对规则仍属近似面（默认左上重叠），资源布局靠桥接出画。
 Value ContainerOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   *ok = true;
   if (n < 2) {
@@ -777,13 +824,8 @@ Value ContainerOnMeasure(VMState& state, VObject* self, const Value* args, size_
   }
   int32_t wspec = args[0].i;
   int32_t hspec = args[1].i;
-  int32_t content_w = GetSpecSize(wspec) - ViewI(self, "mPaddingLeft") -
-                      ViewI(self, "mPaddingRight");
-  int32_t content_h = GetSpecSize(hspec) - ViewI(self, "mPaddingTop") -
-                      ViewI(self, "mPaddingBottom");
-  if (content_w < 0) content_w = 0;
   int32_t max_w = 0;
-  int32_t sum_h = 0;
+  int32_t max_h = 0;
   VArray* children = ViewChildren(self);
   if (children != nullptr) {
     for (int32_t i = 0; i < children->length; i++) {
@@ -800,18 +842,18 @@ Value ContainerOnMeasure(VMState& state, VObject* self, const Value* args, size_
       cargs[1].i = ChildMeasureSpecFull(hspec,
                                         ViewI(self, "mPaddingTop") +
                                             ViewI(self, "mPaddingBottom"),
-                                        lp.mt, lp.mb, sum_h, lp.height);
+                                        lp.mt, lp.mb, 0, lp.height);
       if (!CallVirtual(state, child, "measure", {"I", "I"}, "V", cargs, 2, nullptr)) {
         *ok = false;
         return Value{};
       }
       max_w = std::max(max_w, ViewI(child, "mMeasuredWidth") + lp.ml + lp.mr);
-      sum_h += lp.mt + ViewI(child, "mMeasuredHeight") + lp.mb;
+      max_h = std::max(max_h, ViewI(child, "mMeasuredHeight") + lp.mt + lp.mb);
     }
   }
   SetMeasured(self, ResolveSize(max_w + ViewI(self, "mPaddingLeft") +
                                     ViewI(self, "mPaddingRight"), wspec),
-              ResolveSize(sum_h + ViewI(self, "mPaddingTop") + ViewI(self, "mPaddingBottom"),
+              ResolveSize(max_h + ViewI(self, "mPaddingTop") + ViewI(self, "mPaddingBottom"),
                           hspec));
   return Value{};
 }
@@ -821,7 +863,16 @@ Value ContainerOnLayout(VMState& state, VObject* self, const Value* args, size_t
   *ok = true;
   int32_t l = n >= 4 ? args[1].i : 0;
   int32_t t = n >= 4 ? args[2].i : 0;
-  int32_t y = t + ViewI(self, "mPaddingTop");
+  // AOSP FrameLayout.layoutChildren：子项默认左上重叠（不纵向累加），
+  // 按 lp.gravity 的 center/right/bottom 位修正（RelativeLayout 规则近似）。
+  int32_t self_w = ViewI(self, "mRight") - ViewI(self, "mLeft");
+  int32_t self_h = ViewI(self, "mBottom") - ViewI(self, "mTop");
+  int32_t pad_l = ViewI(self, "mPaddingLeft");
+  int32_t pad_t = ViewI(self, "mPaddingTop");
+  int32_t pad_r = ViewI(self, "mPaddingRight");
+  int32_t pad_b = ViewI(self, "mPaddingBottom");
+  int32_t customer_w = std::max(self_w - pad_l - pad_r, 0);
+  int32_t customer_h = std::max(self_h - pad_t - pad_b, 0);
   VArray* children = ViewChildren(self);
   if (children == nullptr) return Value{};
   for (int32_t i = 0; i < children->length; i++) {
@@ -832,8 +883,22 @@ Value ContainerOnLayout(VMState& state, VObject* self, const Value* args, size_t
     ChildLp lp = ReadChildLp(child);
     int32_t cw = ViewI(child, "mMeasuredWidth");
     int32_t ch = ViewI(child, "mMeasuredHeight");
-    int32_t x = l + ViewI(self, "mPaddingLeft") + lp.ml;
-    int32_t cy = y + lp.mt;
+    int32_t gravity = 0;
+    if (VObject* lpobj = reinterpret_cast<VObject*>(ViewRef(child, "mLayoutParams"))) {
+      gravity = ViewI(lpobj, "gravity");
+    }
+    int32_t x = l + pad_l + lp.ml;
+    int32_t cy = t + pad_t + lp.mt;
+    if ((gravity & 0x01) != 0) {  // CENTER_HORIZONTAL
+      x = l + pad_l + std::max(0, (customer_w - cw) / 2) + lp.ml;
+    } else if ((gravity & 0x05) == 0x05) {  // RIGHT
+      x = l + self_w - pad_r - lp.mr - cw;
+    }
+    if ((gravity & 0x10) != 0) {  // CENTER_VERTICAL
+      cy = t + pad_t + std::max(0, (customer_h - ch) / 2) + lp.mt;
+    } else if ((gravity & 0x50) == 0x50) {  // BOTTOM
+      cy = t + self_h - pad_b - lp.mb - ch;
+    }
     Value largs[4] = {};
     largs[0].i = x;
     largs[1].i = cy;
@@ -843,7 +908,6 @@ Value ContainerOnLayout(VMState& state, VObject* self, const Value* args, size_t
       *ok = false;
       return Value{};
     }
-    y = cy + ch + lp.mb;
   }
   return Value{};
 }
@@ -2076,6 +2140,9 @@ void RegisterRenderPipeline(ClassLinker* linker) {
 
   // ViewGroup：递归 draw 子 View
   AddIntrinsic(view_group, "onDraw", {"Landroid/graphics/Canvas;"}, "V", kAccPublic, VGOnDraw);
+  // AOSP ViewGroup 钩子默认空实现（addView 时 CallVirtual 派发覆写）
+  AddIntrinsic(view_group, "onViewAdded", {"Landroid/view/View;"}, "V", kAccPublic, NoOp);
+  AddIntrinsic(view_group, "onViewRemoved", {"Landroid/view/View;"}, "V", kAccPublic, NoOp);
 
   // ViewGroup 子测量方法面（DrawerLayout/FrameLayout 等 guest onMeasure 消费）
   AddIntrinsic(view_group, "measureChildWithMargins",
@@ -2090,7 +2157,8 @@ void RegisterRenderPipeline(ClassLinker* linker) {
 
   // 资源布局容器（FrameLayout/RelativeLayout/ScrollView 近似面）
   for (const char* desc : {"Landroid/widget/FrameLayout;", "Landroid/widget/RelativeLayout;",
-                           "Landroid/widget/ScrollView;"}) {
+                           "Landroid/widget/ScrollView;",
+                           "Landroid/widget/HorizontalScrollView;"}) {
     VClass* container = linker->FindClass(desc);
     if (container == nullptr) continue;
     AddIntrinsic(container, "onMeasure", {"I", "I"}, "V", kAccPublic, ContainerOnMeasure);

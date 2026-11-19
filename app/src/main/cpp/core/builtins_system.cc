@@ -456,6 +456,175 @@ Value RuntimeExec(VMState& state, VObject* self, const Value* args, size_t n, bo
   r.ref = reinterpret_cast<ObjHeader*>(proc);
   return r;
 }
+// ---- java.lang.Runtime$Version ----
+// JarFile.<clinit>（java.util.jar，JarVerifier 校验路径）需要
+// Runtime.version().feature() 与 Runtime.Version.parse("8").feature()。
+// Runtime 为内建类 -> lib Runtime.java 不入 runtime.dex，其嵌套 Version 缺失；
+// 这里按内建类承接（字段：feature@0、minor@8、security@16、original@24）。
+namespace {
+struct RuntimeVersionParts {
+  int feature = 0;
+  int minor = 0;
+  int security = 0;
+};
+
+// OpenJDK Version.parse 的数值形态子集：1~4 段点分十进制（无 pre/build 后缀）。
+bool ParseRuntimeVersionString(const std::string& s, RuntimeVersionParts* out) {
+  if (s.empty() || s.size() > 64) return false;
+  int parts[4] = {0, 0, 0, 0};
+  int count = 0;
+  size_t i = 0;
+  for (;;) {
+    if (count == 4) return false;
+    size_t start = i;
+    int64_t v = 0;
+    while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+      v = v * 10 + (s[i] - '0');
+      if (v > 0x7fffffffLL) return false;
+      i++;
+    }
+    if (i == start) return false;
+    parts[count++] = static_cast<int>(v);
+    if (i == s.size()) break;
+    if (s[i] != '.') return false;
+    i++;
+    if (i == s.size()) return false;
+  }
+  out->feature = parts[0];
+  out->minor = count > 1 ? parts[1] : 0;
+  out->security = count > 2 ? parts[2] : 0;
+  return true;
+}
+
+VObject* AllocRuntimeVersion(VMState& state, const RuntimeVersionParts& p,
+                             const std::string& original, bool* ok) {
+  VClass* k = state.linker != nullptr ? state.linker->FindClass("Ljava/lang/Runtime$Version;")
+                                      : nullptr;
+  if (k == nullptr) {
+    state.ThrowNew("Ljava/lang/NoClassDefFoundError;", "java/lang/Runtime$Version");
+    *ok = false;
+    return nullptr;
+  }
+  VObject* v = state.linker->AllocObject(k);
+  if (v == nullptr) {
+    ThrowOOM(state, "Runtime$Version allocation failed");
+    *ok = false;
+    return nullptr;
+  }
+  SetIField(v, 0, p.feature);
+  SetIField(v, 8, p.minor);
+  SetIField(v, 16, p.security);
+  VField* orig = FindInstField(k, "original");
+  if (orig != nullptr && state.linker != nullptr) {
+    VString* str = state.linker->AllocString(
+        std::u16string(original.begin(), original.end()));
+    ObjHeader* h = reinterpret_cast<ObjHeader*>(str);
+    std::memcpy(v->field_data() + orig->offset, &h, sizeof(h));
+  }
+  return v;
+}
+}  // namespace
+
+Value RuntimeVersion(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)self; (void)args; (void)n;
+  // Java 8 语义基线：Android 无 Runtime.version 面；8 使 JarFile 走 base 版本条目
+  // （multi-release 判定关闭），与 libcore StrictJarFile 对 §8 的处理一致。
+  RuntimeVersionParts p;
+  p.feature = 8;
+  Value r{};
+  r.ref = reinterpret_cast<ObjHeader*>(AllocRuntimeVersion(state, p, "8", ok));
+  return r;
+}
+Value VersionParse(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)self;
+  if (n < 1 || args[0].ref == nullptr) {
+    state.ThrowNew("Ljava/lang/NullPointerException;", "version string");
+    *ok = false;
+    return Value{};
+  }
+  std::string s = Mutf8Arg(args[0]);
+  RuntimeVersionParts p;
+  if (!ParseRuntimeVersionString(s, &p)) {
+    state.ThrowNew("Ljava/lang/IllegalArgumentException;",
+                   "Invalid version string: '" + s + "'");
+    *ok = false;
+    return Value{};
+  }
+  Value r{};
+  r.ref = reinterpret_cast<ObjHeader*>(AllocRuntimeVersion(state, p, s, ok));
+  return r;
+}
+Value VersionFeature(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state; (void)args; (void)n; (void)ok;
+  Value r{};
+  r.i = GetIField(self, 0);
+  return r;
+}
+Value VersionMajor(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  return VersionFeature(state, self, args, n, ok);
+}
+Value VersionMinor(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state; (void)args; (void)n; (void)ok;
+  Value r{};
+  r.i = GetIField(self, 8);
+  return r;
+}
+Value VersionSecurity(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state; (void)args; (void)n; (void)ok;
+  Value r{};
+  r.i = GetIField(self, 16);
+  return r;
+}
+Value VersionToString(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)args; (void)n;
+  Value r{};
+  VField* f = FindInstField(self->klass, "original");
+  if (f != nullptr) {
+    std::memcpy(&r.ref, self->field_data() + f->offset, sizeof(r.ref));
+    if (r.ref != nullptr) return r;
+  }
+  return MakeStr(state, u"", ok);
+}
+Value VersionEquals(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state; (void)ok;
+  Value r{};
+  r.i = 0;
+  ObjHeader* other = (n > 0) ? args[0].ref : nullptr;
+  if (other == nullptr || other->klass == nullptr ||
+      other->klass->descriptor != "Ljava/lang/Runtime$Version;") {
+    return r;
+  }
+  VObject* o = static_cast<VObject*>(other);
+  r.i = (GetIField(self, 0) == GetIField(o, 0) &&
+         GetIField(self, 8) == GetIField(o, 8) &&
+         GetIField(self, 16) == GetIField(o, 16)) ? 1 : 0;
+  return r;
+}
+Value VersionHashCode(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state; (void)args; (void)n; (void)ok;
+  Value r{};
+  r.i = (GetIField(self, 0) * 31 + GetIField(self, 8)) * 31 + GetIField(self, 16);
+  return r;
+}
+Value VersionCompareTo(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  if (n < 1 || args[0].ref == nullptr) {
+    state.ThrowNew("Ljava/lang/NullPointerException;", "version");
+    *ok = false;
+    return Value{};
+  }
+  VObject* o = static_cast<VObject*>(args[0].ref);
+  Value r{};
+  r.i = 0;
+  for (uint32_t off : {0u, 8u, 16u}) {
+    int32_t a = GetIField(self, off);
+    int32_t b = GetIField(o, off);
+    if (a != b) {
+      r.i = a < b ? -1 : 1;
+      break;
+    }
+  }
+  return r;
+}
 // ---- java.lang.Enum ----
 Value EnumInit(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   (void)ok;

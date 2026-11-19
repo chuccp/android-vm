@@ -4649,18 +4649,29 @@ bool LookupDimPx(const std::string& apk, uint32_t res_id, float* out, std::strin
   std::string s;
   if (!seam->lookup_value(apk, res_id, &t, &d, &s, err)) return false;
   auto complex_to_float = [](uint32_t data) {
-    return static_cast<float>(static_cast<int32_t>(data & 0xFFFFFF00u)) / 256.0f;
+    // AOSP TypedValue.complexToFloat：24 位尾数 × RADIX_MULTS[radix]
+    // （radix 3 = 0.5dp 的 0x40000031 形态；忽略 radix 会放大 2^23 倍）。
+    static constexpr float kRadixMults[4] = {
+        1.0f / 256.0f,
+        1.0f / (256.0f * 128.0f),
+        1.0f / (256.0f * 32768.0f),
+        1.0f / (256.0f * 8388608.0f),
+    };
+    const int32_t mantissa = static_cast<int32_t>(data & 0xFFFFFF00u);
+    const int radix = static_cast<int>((data >> 4) & 0x3);
+    return static_cast<float>(mantissa) * kRadixMults[radix];
   };
   switch (t) {
     case 0x05: {  // TYPE_DIMENSION
       const int unit = static_cast<int>(d & 0xF);
       float v = complex_to_float(d);
+      // 与 ResDisplayMetrics（density/scaledDensity=2、dpi=320）同口径。
       switch (unit) {
-        case 1: *out = v; break;                 // dp
-        case 2: *out = v; break;                 // sp
-        case 3: *out = v * 160.0f / 72.0f; break;
-        case 4: *out = v * 160.0f; break;
-        case 5: *out = v * 160.0f / 25.4f; break;
+        case 1: *out = v * 2.0f; break;          // dp
+        case 2: *out = v * 2.0f; break;          // sp
+        case 3: *out = v * 320.0f / 72.0f; break;
+        case 4: *out = v * 320.0f; break;
+        case 5: *out = v * 320.0f / 25.4f; break;
         default: *out = v; break;                // px
       }
       return true;

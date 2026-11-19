@@ -1005,6 +1005,15 @@ public class Collections {
         }
     }
 
+    /** AOSP Collections.list(Enumeration<T>)：枚举转 ArrayList（JarFile.stream 消费）。 */
+    public static <T> ArrayList<T> list(Enumeration<T> e) {
+        ArrayList<T> list = new ArrayList<T>();
+        while (e.hasMoreElements()) {
+            list.add(e.nextElement());
+        }
+        return list;
+    }
+
     public static <T> Enumeration<T> enumeration(Collection<T> values) {
         return new Enumeration<T>() {
             private final Iterator<T> it = values.iterator();

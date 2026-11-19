@@ -84,11 +84,14 @@ public class TypedValue {
                 * RADIX_MULTS[(complex >> COMPLEX_RADIX_SHIFT) & COMPLEX_RADIX_MASK];
     }
 
+    // AOSP 口径：每一项都含 MANTISSA_MULT（1/256）。缺失时 radix>0 的
+    // 尺寸（如 0.5dp = 0x40000031）会被放大 256 倍以上。
+    private static final float MANTISSA_MULT = 1.0f / (1 << COMPLEX_MANTISSA_SHIFT);
     private static final float[] RADIX_MULTS = {
-            1.0f * (1.0f / (1 << 8)),
-            1.0f / (1 << 7),
-            1.0f / (1 << 15),
-            1.0f / (1 << 23)
+            1.0f * MANTISSA_MULT,
+            1.0f / (1 << 7) * MANTISSA_MULT,
+            1.0f / (1 << 15) * MANTISSA_MULT,
+            1.0f / (1 << 23) * MANTISSA_MULT
     };
 
     public static String complexToDimensionPixelSize(int complex, DisplayMetrics metrics) {

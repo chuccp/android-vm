@@ -2028,6 +2028,8 @@ void RegisterBuiltins(ClassLinker* linker) {
       AddIntrinsicMethod(rt, "maxMemory", {}, "J", pub, RuntimeMaxMemory);
       AddIntrinsicMethod(rt, "freeMemory", {}, "J", pub, RuntimeFreeMemory);
       AddIntrinsicMethod(rt, "gc", {}, "V", pub, RuntimeGc);
+      // JarFile.<clinit>：Runtime.version().feature()（见 Runtime$Version 内建）
+      AddIntrinsicMethod(rt, "version", {}, "Ljava/lang/Runtime$Version;", stat, RuntimeVersion);
       // Runtime.exec：VM 无外部进程面 -> 哑进程（见 builtins_system.cc RuntimeExec）
       AddIntrinsicMethod(rt, "exec", {"Ljava/lang/String;"}, "Ljava/lang/Process;", pub,
                          RuntimeExec);
@@ -2043,6 +2045,46 @@ void RegisterBuiltins(ClassLinker* linker) {
       AddIntrinsicMethod(rt, "exec",
                          {"[Ljava/lang/String;", "[Ljava/lang/String;", "Ljava/io/File;"},
                          "Ljava/lang/Process;", pub, RuntimeExec);
+    }
+
+    // -- java.lang.Runtime$Version（内建：Runtime 内建后 lib 嵌套类不入 dex）--
+    // OpenJDK 形态：feature/minor/security 三元组 + 原始串（toString）。
+    // 消费方：java.util.jar.JarFile.<clinit> / 多版本 jar 判定。
+    VClass* rtver = reg(MakeClass(linker, &all, "Ljava/lang/Runtime$Version;", object, 32,
+                                  pub | kAccFinal));
+    if (rtver != nullptr) {
+      const struct {
+        const char* name;
+        const char* desc;
+        uint32_t offset;
+      } vfields[] = {
+          {"feature", "I", 0}, {"minor", "I", 8}, {"security", "I", 16},
+          {"original", "Ljava/lang/String;", 24},
+      };
+      for (const auto& fdef : vfields) {
+        VField f;
+        f.declaring = rtver;
+        f.name = fdef.name;
+        f.type_descriptor = fdef.desc;
+        f.access_flags = pub | kAccFinal;
+        f.offset = fdef.offset;
+        f.is_static = false;
+        rtver->instance_fields.push_back(std::move(f));
+      }
+      AddIntrinsicMethod(rtver, "parse", {"Ljava/lang/String;"},
+                         "Ljava/lang/Runtime$Version;", stat, VersionParse);
+      AddIntrinsicMethod(rtver, "feature", {}, "I", pub, VersionFeature);
+      AddIntrinsicMethod(rtver, "major", {}, "I", pub, VersionMajor);
+      AddIntrinsicMethod(rtver, "minor", {}, "I", pub, VersionMinor);
+      AddIntrinsicMethod(rtver, "security", {}, "I", pub, VersionSecurity);
+      AddIntrinsicMethod(rtver, "toString", {}, "Ljava/lang/String;", pub, VersionToString);
+      AddIntrinsicMethod(rtver, "equals", {"Ljava/lang/Object;"}, "Z", pub, VersionEquals);
+      AddIntrinsicMethod(rtver, "hashCode", {}, "I", pub, VersionHashCode);
+      AddIntrinsicMethod(rtver, "compareTo", {"Ljava/lang/Runtime$Version;"}, "I", pub,
+                         VersionCompareTo);
+      AddIntrinsicMethod(rtver, "compareTo", {"Ljava/lang/Object;"}, "I", pub, VersionCompareTo);
+      linker->AddPendingBuiltinInterface("Ljava/lang/Runtime$Version;",
+                                         "Ljava/lang/Comparable;");
     }
 
     // -- java.lang.Enum（枚举子类超类；name @0、ordinal @8）--

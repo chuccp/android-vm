@@ -352,6 +352,16 @@ Value RuntimeLoad(VMState& state, VObject* self, const Value* args, size_t n, bo
 Value RuntimeLoadLibrary(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value RuntimeMaxMemory(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value RuntimeTotalMemory(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value RuntimeVersion(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionCompareTo(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionEquals(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionFeature(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionHashCode(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionMajor(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionMinor(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionParse(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionSecurity(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VersionToString(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value SBAppendBool(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value SBAppendCS(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value SBAppendCSRange(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);

@@ -625,10 +625,20 @@ public final class UiBridgeMaterializer {
             boolean weightedLinear = wv > 0 && parent instanceof HostLinearLayout;
             if (weightedLinear) childWeight.put(child, wv);
             else childWeight.remove(child);
+            // guest 已测出 0x0 的 match_parent 子项（如 CoordinatorLayout 的
+            // ScrollingViewBehavior 在当前 AppBar 高度下给出 0 高）：保留 guest
+            // 测量结果，不再交宿主按 match_parent 撑满（否则滚动内容白底覆盖
+            // 整个 AppBar，首帧只剩白屏）。
+            boolean measuredCollapsedW =
+                    mw == 0 && gw == ViewGroup.LayoutParams.MATCH_PARENT;
+            boolean measuredCollapsedH =
+                    mh == 0 && gh == ViewGroup.LayoutParams.MATCH_PARENT;
             // 0dp + weight 是"剩余空间分配"占位（AOSP LinearLayout）：尺寸 0
             // 保留到宿主 measure 的权重轮再展开，不能当 WRAP_CONTENT。
-            int lw = weightedLinear && gw == 0 ? 0 : lpDimension(gw, mw);
-            int lh = weightedLinear && gh == 0 ? 0 : lpDimension(gh, mh);
+            int lw = measuredCollapsedW ? 0
+                    : weightedLinear && gw == 0 ? 0 : lpDimension(gw, mw);
+            int lh = measuredCollapsedH ? 0
+                    : weightedLinear && gh == 0 ? 0 : lpDimension(gh, mh);
             lp = new ViewGroup.MarginLayoutParams(lw, lh);
             if (margins != null) {
                 lp.leftMargin = Math.max(margins.rect[0], 0);
