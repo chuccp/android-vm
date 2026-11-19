@@ -27,7 +27,9 @@
 // 桥接缝（core/framework_view.cc 实现体）：setOnClickListener NoOp -> 监听器
 // 登记（viewId -> guest listener 注入面，bridge/ui_bridge_input.h 契约）。
 namespace dexvm::runtime {
-Value ViewSetOnClickListener(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+void ClearGuestLayoutRequested(VObject* v);
+Value ViewSetOnClickListener
+(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 // 宿主真字体度量桥（core/framework_font.cc；false=不可用回落网格）
 bool HostMeasureTextUtf16(const uint16_t* chars, int32_t len, float text_size,
                           float* out_width);
@@ -354,6 +356,8 @@ Value ViewLayout(VMState& state, VObject* self, const Value* args, size_t n, boo
   if (!CallVirtual(state, self, "onLayout", {"Z", "I", "I", "I", "I"}, "V", oa, 5, nullptr)) {
     *ok = false;
   }
+  // AOSP layout：清除 FORCE_LAYOUT（isLayoutRequested 状态位投影）。
+  ClearGuestLayoutRequested(self);
   return Value{};
 }
 

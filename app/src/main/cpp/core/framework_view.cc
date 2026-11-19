@@ -23,6 +23,7 @@
 #include <cstring>
 #include <map>
 #include <new>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -80,7 +81,28 @@ std::map<VObject*, VObject*> g_vto_by_view;
 // 重新 measure/layout/draw。会话帧循环按此脏位触发 traversal（异步 UI
 // ——ViewPager/RecyclerView adapter 绑定、延迟 addView——全靠它）。
 std::atomic<bool> g_layout_requested{false};
+// AOSP View.mPrivateFlags & PFLAG_FORCE_LAYOUT 投影：requestLayout/addView 置位、
+// layout 清除。ConstraintLayout.updateHierarchy 用子 View.isLayoutRequested()
+// 判定是否重建约束（缺此状态位 -> 首测不建 widget -> 子项永不测量，整树按
+// empty container 回落到 AT_MOST 满高）。
+std::set<VObject*> g_layout_requested_views;
+
+void MarkLayoutRequestedChain(VObject* v) {
+  for (int depth = 0; v != nullptr && depth < 64; ++depth) {
+    g_layout_requested_views.insert(v);
+    VField* pf = FindInstanceField(v->klass, "mParent");
+    v = pf != nullptr ? reinterpret_cast<VObject*>(GetRefField(v, pf->offset)) : nullptr;
+  }
+}
+
+bool IsLayoutRequestedView(VObject* v) {
+  return v != nullptr && g_layout_requested_views.count(v) != 0;
+}
 }  // namespace
+
+void ClearGuestLayoutRequested(VObject* v) {
+  if (v != nullptr) g_layout_requested_views.erase(v);
+}
 
 void RequestGuestLayout() {
   g_layout_requested.store(true, std::memory_order_relaxed);
@@ -428,6 +450,12 @@ Value VGAddView(VMState& state, VObject* self, const Value* args, size_t n, bool
       state.ClearException();
     }
   }
+  // AOSP addViewInner：新子项与祖先链进入 FORCE_LAYOUT（ConstraintLayout
+  // updateHierarchy 依赖子项 isLayoutRequested 才会重建约束）。
+  if (VObject* added_child = reinterpret_cast<VObject*>(args[0].ref)) {
+    MarkLayoutRequestedChain(added_child);
+  }
+  MarkLayoutRequestedChain(self);
   // 已附着树内新增子 View：AOSP 立即分发 attach/窗口可见性（BottomNav 等
   // 自定义导航在 onAttachedToWindow/onWindowVisibilityChanged 里启动控制器）。
   if (GuestViewAttached() && args[0].ref != nullptr) {
@@ -982,7 +1010,10 @@ Value ViewSetVisibility(VMState& state, VObject* self, const Value* args, size_t
       // AOSP setVisibility：值变化 -> requestLayout/invalidate（下一帧
       // traversal）。缺此钩子时 XML 里 GONE、运行期转 VISIBLE 的控件
       // （TopNavigator tab、延迟加载区块）永远保持 0x0。
-      if (old != args[0].i) RequestGuestLayout();
+      if (old != args[0].i) {
+        MarkLayoutRequestedChain(self);
+        RequestGuestLayout();
+      }
     }
   }
   return Value{};
@@ -1147,8 +1178,20 @@ Value ViewRequestLayout(VMState& state, VObject* self, const Value* args, size_t
   (void)n;
   *ok = true;
   // AOSP：标记树脏 -> 下一帧 traversal（异步 UI 的驱动面，不能是空实现）。
+  MarkLayoutRequestedChain(self);
   RequestGuestLayout();
   return Value{};
+}
+
+Value ViewIsLayoutRequested(VMState& state, VObject* self, const Value* args, size_t n,
+                           bool* ok) {
+  (void)state;
+  (void)args;
+  (void)n;
+  *ok = true;
+  Value r{};
+  r.i = IsLayoutRequestedView(self) ? 1 : 0;
+  return r;
 }
 
 Value ViewInvalidate(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {

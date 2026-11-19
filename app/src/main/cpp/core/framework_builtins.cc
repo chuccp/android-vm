@@ -2174,6 +2174,7 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
     AddIntrinsicMethod(view, "getContentDescription", {}, "Ljava/lang/CharSequence;", pub,
                        ViewGetContentDescription);
     AddIntrinsicMethod(view, "requestLayout", {}, "V", pub, ViewRequestLayout);
+    AddIntrinsicMethod(view, "isLayoutRequested", {}, "Z", pub, ViewIsLayoutRequested);
     // 布局/附着态谓词（AOSP View 状态位面的可观测投影）
     AddIntrinsicMethod(view, "isLaidOut", {}, "Z", pub,
                        [](VMState& st, VObject* self, const Value*, size_t, bool* ok) {
@@ -2779,7 +2780,7 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                         "Landroid/view/ViewParent;", pub);
       // ViewGroup 实体实现（空转面；字段缝面复用 View 长尾）
       AddIntrinsicMethod(view_group, "requestLayout", {}, "V", pub, ViewRequestLayout);
-      AddIntrinsicMethod(view_group, "isLayoutRequested", {}, "Z", pub, NoOp);
+      AddIntrinsicMethod(view_group, "isLayoutRequested", {}, "Z", pub, ViewIsLayoutRequested);
       AddIntrinsicMethod(view_group, "requestTransparentRegion", {"Landroid/view/View;"}, "V",
                          pub, NoOp);
       AddIntrinsicMethod(view_group, "invalidateChild",

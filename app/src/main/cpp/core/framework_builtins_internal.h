@@ -534,6 +534,9 @@ Value ViewGetTagKeyed(VMState& state, VObject* self, const Value* args, size_t n
 Value ViewGetTop(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewGetVisibility(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewInvalidate(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value ViewIsLayoutRequested(VMState& state, VObject* self, const Value* args, size_t n,
+                           bool* ok);
+void ClearGuestLayoutRequested(VObject* v);
 Value ViewPerformClick(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewPost(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewRemoveCallbacks(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
