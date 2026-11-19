@@ -114,4 +114,21 @@ bool InvokeNativeTrampoline(runtime::VMState* state, runtime::VMethod* method,
 // VMState -> JNIEnvExt 登记（InitJNIEnvExt 调用）
 void RegisterEnvForState(runtime::VMState* state, JNIEnvExt* env);
 
+// ---- 调用期诊断（TEMP DIAG；-DDEXVM_CALL_DIAGNOSTICS=1 构建，事后移除）----
+// 记录「当前线程正在执行哪个 guest native 方法」以及该 native 经 JNIEnv 发起的
+// 回调面（FindClass/Get*ID/Call*/ThrowNew），用于归因加固 native（bangcle
+// JniLib.cL 等）在 VM 内失败的具体 JNI 交互点。默认构建下全部为空实现。
+// Begin 返回本次调用是否纳入诊断（仅加固 native）；End 需以该返回值配对，
+// 未纳入的调用不得递减嵌套深度（否则内层普通 native 会误清外层上下文）。
+bool NativeDiagBegin(runtime::VMethod* m);
+void NativeDiagEnd(bool entered);
+// 当前线程最内层 guest native 方法的描述符.name（无则空串；全量 native，不限加固）。
+std::string NativeDiagCurrentNative();
+// 内存环形记录（不写 logcat，避免同步 I/O 拖慢 guest）；仅在失败点一次性转储。
+int NativeDiagDepth();
+void NativeDiagRecord(const std::string& entry);
+void NativeDiagDumpRing(const char* why);
+bool NativeDiagActive();
+void NativeDiagLog(const char* fn, const std::string& detail);
+
 }  // namespace dexvm::jni

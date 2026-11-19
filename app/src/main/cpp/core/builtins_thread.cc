@@ -1363,6 +1363,17 @@ void SetGuestSchedOps(const GuestSchedOps* ops) {
 }
 const GuestSchedOps* GuestSched() { return g_guest_sched_ops; }
 
+// guest task 结束钩子（JNI local ref 表等按 task 资源回收；单 carrier 访问）
+namespace {
+void (*g_guest_task_end_hook)(void*) = nullptr;
+}  // namespace
+
+void SetGuestTaskEndHook(void (*fn)(void* task)) { g_guest_task_end_hook = fn; }
+
+void NotifyGuestTaskEnd(void* task) {
+  if (g_guest_task_end_hook != nullptr) g_guest_task_end_hook(task);
+}
+
 void MonitorEnterImpl(VMState& state, ObjHeader* obj) {
   (void)state;
   GuestThreadCtx* me = CurrentCtx();

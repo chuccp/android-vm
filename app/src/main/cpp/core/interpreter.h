@@ -102,6 +102,13 @@ VMethod* CurrentGuestMethod();
 bool InvokeMethod(VMState& state, VMethod* method, const Value* args, size_t arg_count,
                   Value* result);
 
+// JNI NewObject(String, ...) 承接面：ART 中 String.<init> 是真实构造器，JNI
+// 与解释器同语义；本 VM 的 String 为 VString 布局、<init> 是骨架，JNI 直调
+// InvokeMethod 不会填充内容。此入口按 StringFactory 同一套规则从构造器实参
+// （不含 this）生成字符内容并分配 VString；失败挂异常返回 false。
+bool BuildJniStringCtor(VMState& state, VMethod* ctor, const Value* args, size_t argc,
+                        VString** out);
+
 // 类定义完整性防御（M4.3）：InitializeClass 前校验——定义未完成的残留类
 // （DefineClassImpl 中 super/interface 解析失败：停在 kLoaded、LinkClass 未跑、
 // static_storage 未建）进入 <clinit> 静态值解码会写空槽崩（SIGSEGV 根因）。

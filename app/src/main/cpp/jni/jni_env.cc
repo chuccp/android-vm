@@ -2,6 +2,8 @@
 // 对照 jni_internal.cc/java_vm_ext.cc）
 #include "jni/jni_env.h"
 
+#include <dlfcn.h>
+
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -59,7 +61,7 @@ ObjHeader* DecodeObj(JNIEnvExt* e, jobject ref) {
   Handle h = ToHandle(ref);
   switch (GetHandleKind(h)) {
     case RefKind::kLocal:
-      return e->locals.Get(h);
+      return e->Locals().Get(h);
     case RefKind::kGlobal:
     case RefKind::kWeakGlobal:
       return e->vm != nullptr ? e->vm->globals.Get(h) : nullptr;  // weak 清除 -> null
@@ -71,7 +73,7 @@ ObjHeader* DecodeObj(JNIEnvExt* e, jobject ref) {
 
 jobject EncodeObj(JNIEnvExt* e, ObjHeader* obj) {
   if (obj == nullptr) return nullptr;
-  Handle h = e->locals.Add(obj);
+  Handle h = e->Locals().Add(obj);
   if (h == kNullHandle) {
     e->Warn("EncodeJObject: local reference table overflow");
     // JNI 耗尽语义（docs 15.12）：返 null 且抛 OutOfMemoryError——调用方按
@@ -90,6 +92,52 @@ VClass* DecodeClass(JNIEnvExt* e, jclass clazz) {
   // jclass 句柄指向 java.lang.Class 元对象（本 VM 中即 VClass 本体）
   return reinterpret_cast<VClass*>(DecodeObj(e, clazz));
 }
+
+// ---- 调用期诊断（TEMP DIAG；-DDEXVM_CALL_DIAGNOSTICS=1 构建，事后移除）----
+// 加固 native（bangcle JniLib.cL）失败时，记录它经 JNIEnv 发起的类/方法/字段
+// 查找与调用，定位 VM 侧语义缺口。
+#ifndef DEXVM_CALL_DIAGNOSTICS
+#define DEXVM_CALL_DIAGNOSTICS 0
+#endif
+#if DEXVM_CALL_DIAGNOSTICS
+inline std::string DiagClassDesc(JNIEnvExt* e, jclass clazz) {
+  VClass* k = DecodeClass(e, clazz);
+  return k != nullptr ? k->descriptor : std::string("<null-class>");
+}
+inline std::string DiagObjDesc(JNIEnvExt* e, jobject obj) {
+  ObjHeader* h = DecodeObj(e, obj);
+  return (h != nullptr && h->klass != nullptr) ? h->klass->descriptor : std::string("<null>");
+}
+inline std::string DiagMethodDesc(const VMethod* m) {
+  if (m == nullptr) return "<null-method>";
+  std::string s = m->declaring != nullptr ? m->declaring->descriptor : "?";
+  s += ".";
+  s += m->name;
+  s += "(";
+  for (const auto& p : m->param_types) s += p;
+  s += ")";
+  s += m->return_type;
+  return s;
+}
+// String 内容缩略（native 字符串常量/解密输入归因）
+inline std::string DiagStr(ObjHeader* o, size_t max_len) {
+  if (o == nullptr || o->klass == nullptr || o->klass->descriptor != "Ljava/lang/String;") {
+    return "?";
+  }
+  std::string s = reinterpret_cast<VString*>(o)->ToModifiedUtf8();
+  if (s.size() > max_len) s = s.substr(0, max_len) + "...";
+  return s;
+}
+inline bool DiagIsStr(ObjHeader* o) {
+  return o != nullptr && o->klass != nullptr && o->klass->descriptor == "Ljava/lang/String;";
+}
+#define DEXVM_JNI_DIAG(fn, detail)                 \
+  do {                                             \
+    if (NativeDiagActive()) NativeDiagLog(fn, detail); \
+  } while (0)
+#else
+#define DEXVM_JNI_DIAG(fn, detail) ((void)0)
+#endif
 
 // ---- 窄化（8 字节元素/字段槽语义，对照 interpreter Narrow）----
 
@@ -416,6 +464,24 @@ bool InvokeJni(JNIEnvExt* e, VMethod* target, jobject receiver, const std::vecto
   if (!target->IsStatic()) {
     ObjHeader* recv = DecodeObj(e, receiver);
     if (recv == nullptr) {
+#if DEXVM_CALL_DIAGNOSTICS
+      static std::atomic<int> null_recv_logs{0};
+      if (null_recv_logs.fetch_add(1) < 64) {
+        char hb[32];
+        std::snprintf(hb, sizeof(hb), "0x%llx",
+                      static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(receiver)));
+        NativeDiagRecord(std::string("NULL-RECV ") + DiagMethodDesc(target) + " handle=" + hb +
+                         " slot=[" + e->Locals().DescribeHandle(ToHandle(receiver)) + "]");
+        NativeDiagDumpRing("null receiver");
+        __android_log_print(ANDROID_LOG_INFO, "DexVmNativeJni",
+                            "InvokeJni null receiver: %s handle=%p diag=%d native=%s slot=[%s]",
+                            DiagMethodDesc(target).c_str(),
+                            reinterpret_cast<void*>(receiver),
+                            NativeDiagDepth(),
+                            NativeDiagCurrentNative().c_str(),
+                            e->Locals().DescribeHandle(ToHandle(receiver)).c_str());
+      }
+#endif
       dexvm::runtime::ThrowNullPointerException(st, "JNI call on null");
       return false;
     }
@@ -518,7 +584,20 @@ bool InvokeJni(JNIEnvExt* e, VMethod* target, jobject receiver, const std::vecto
 // ---- 返回值转换（object -> local ref；异常保留在 Guest Thread）----
 
 jobject RetObject(JNIEnvExt* e, const Value& r) {
-  return EncodeObj(e, reinterpret_cast<ObjHeader*>(static_cast<uintptr_t>(r.l)));
+  jobject h = EncodeObj(e, reinterpret_cast<ObjHeader*>(static_cast<uintptr_t>(r.l)));
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive() && h != nullptr) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "0x%llx",
+                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(h)));
+    DEXVM_JNI_DIAG("RetObject",
+                   std::string("handle ") + buf + " cls=" +
+                       ((r.ref != nullptr && r.ref->klass != nullptr)
+                            ? r.ref->klass->descriptor
+                            : std::string("null")));
+  }
+#endif
+  return h;
 }
 jint RetInt(const Value& r) { return static_cast<jint>(r.l); }
 jboolean RetBoolean(const Value& r) { return (r.l & 0xffu) != 0 ? JNI_TRUE : JNI_FALSE; }
@@ -666,7 +745,7 @@ jarray NewPrimArray(JNIEnvExt* e, jsize length) {
     dexvm::runtime::ThrowOutOfMemoryError(*e->vmstate, "NewArray");
     return nullptr;
   }
-  return FromHandle<jarray>(e->locals.Add(arr));
+  return FromHandle<jarray>(e->Locals().Add(arr));
 }
 
 // ---- 异常对象 detailMessage（对照 exception.cc SetDetailMessage）----
@@ -710,11 +789,14 @@ jclass JniFindClass(JNIEnv* env, const char* name) {
   // GetClassLoader 优先级（override -> 当前帧声明类 loader -> system -> boot）
   std::string desc = NormalizeJniClassDescriptor(name);
   VClass* k = e->vmstate->linker->FindClass(GetEffectiveClassLoader(e), desc);
+#if DEXVM_CALL_DIAGNOSTICS
+  { std::string d = desc; d += k != nullptr ? " ok" : " FAIL"; DEXVM_JNI_DIAG("FindClass", d); }
+#endif
   if (k == nullptr) {
     e->vmstate->ThrowNew("Ljava/lang/NoClassDefFoundError;", name);
     return nullptr;
   }
-  return FromHandle<jclass>(e->locals.Add(reinterpret_cast<ObjHeader*>(k)));
+  return FromHandle<jclass>(e->Locals().Add(reinterpret_cast<ObjHeader*>(k)));
 }
 
 jclass JniGetSuperclass(JNIEnv* env, jclass clazz) {
@@ -723,7 +805,7 @@ jclass JniGetSuperclass(JNIEnv* env, jclass clazz) {
   if (k == nullptr) return nullptr;
   if (k->IsInterface()) return nullptr;  // docs 15.5：interface ? null : super
   if (k->super_class == nullptr) return nullptr;
-  return FromHandle<jclass>(e->locals.Add(reinterpret_cast<ObjHeader*>(k->super_class)));
+  return FromHandle<jclass>(e->Locals().Add(reinterpret_cast<ObjHeader*>(k->super_class)));
 }
 
 jboolean JniIsAssignableFrom(JNIEnv* env, jclass clazz1, jclass clazz2) {
@@ -759,6 +841,23 @@ jint JniThrowNew(JNIEnv* env, jclass clazz, const char* msg) {
     return JNI_ERR;
   }
   SetDetailMessage(e, ex, msg != nullptr ? msg : "");
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive()) {
+    Dl_info di{};
+    void* ra = __builtin_return_address(0);
+    const char* fname = "?";
+    unsigned long long foff = 0;
+    if (ra != nullptr && dladdr(ra, &di) != 0 && di.dli_fbase != nullptr) {
+      if (di.dli_fname != nullptr) fname = di.dli_fname;
+      foff = static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(ra) -
+                                             reinterpret_cast<uintptr_t>(di.dli_fbase));
+    }
+    char where[256];
+    std::snprintf(where, sizeof(where), " from %s+0x%llx", fname, foff);
+    std::string d = k->descriptor + " \"" + (msg != nullptr ? msg : "") + "\"" + where;
+    DEXVM_JNI_DIAG("ThrowNew", d);
+  }
+#endif
   e->vmstate->Throw(ex);
   return 0;
 }
@@ -766,7 +865,7 @@ jint JniThrowNew(JNIEnv* env, jclass clazz, const char* msg) {
 jthrowable JniExceptionOccurred(JNIEnv* env) {
   JNIEnvExt* e = Ext(env);
   return FromHandle<jthrowable>(
-      e->locals.Add(e->vmstate->pending_exception));  // null -> kNullHandle
+      e->Locals().Add(e->vmstate->pending_exception));  // null -> kNullHandle
 }
 
 jboolean JniExceptionCheck(JNIEnv* env) {
@@ -806,19 +905,30 @@ void JniFatalError(JNIEnv* env, const char* msg) {
 
 jint JniPushLocalFrame(JNIEnv* env, jint capacity) {
   JNIEnvExt* e = Ext(env);
+#if DEXVM_CALL_DIAGNOSTICS
+  DEXVM_JNI_DIAG("PushLocalFrame",
+                 "cap=" + std::to_string(capacity) + " depth=" +
+                     std::to_string(e->Locals().frame_depth()) + " native=" +
+                     NativeDiagCurrentNative());
+#endif
   // docs 15.12：容量核算（不足返回 JNI_ERR，不入帧）
-  if (!e->locals.EnsureCapacity(capacity)) {
+  if (!e->Locals().EnsureCapacity(capacity)) {
     e->Warn("PushLocalFrame: insufficient local reference capacity");
     return JNI_ERR;
   }
-  e->locals.PushFrame();
+  e->Locals().PushFrame();
   return 0;
 }
 
 jobject JniPopLocalFrame(JNIEnv* env, jobject result) {
   JNIEnvExt* e = Ext(env);
+#if DEXVM_CALL_DIAGNOSTICS
+  DEXVM_JNI_DIAG("PopLocalFrame",
+                 "depth=" + std::to_string(e->Locals().frame_depth()) + " native=" +
+                     NativeDiagCurrentNative());
+#endif
   ObjHeader* survivor = DecodeObj(e, result);  // 解码后随帧释放
-  if (!e->locals.PopFrame()) {
+  if (!e->Locals().PopFrame()) {
     e->Warn("PopLocalFrame: unbalanced pop");
     return nullptr;
   }
@@ -842,7 +952,7 @@ void JniDeleteLocalRef(JNIEnv* env, jobject obj) {
   JNIEnvExt* e = Ext(env);
   if (obj == nullptr) return;
   // docs 15.15：非当前 frame 的 entry no-op + WARNING，不抛异常
-  if (!e->locals.Remove(ToHandle(obj))) e->Warn("DeleteLocalRef: not in current frame");
+  if (!e->Locals().Remove(ToHandle(obj))) e->Warn("DeleteLocalRef: not in current frame");
 }
 
 jboolean JniIsSameObject(JNIEnv* env, jobject a, jobject b) {
@@ -859,7 +969,7 @@ jobject JniNewLocalRef(JNIEnv* env, jobject ref) {
 jint JniEnsureLocalCapacity(JNIEnv* env, jint capacity) {
   // docs 15.12：真实容量核算（kMaxLocalRefs 余量）
   JNIEnvExt* e = Ext(env);
-  if (!e->locals.EnsureCapacity(capacity)) {
+  if (!e->Locals().EnsureCapacity(capacity)) {
     e->Warn("EnsureLocalCapacity: insufficient local reference capacity");
     return JNI_ERR;
   }
@@ -890,12 +1000,52 @@ jobject NewObjectCommon(JNIEnvExt* e, jclass clazz, jmethodID methodID,
     return nullptr;
   }
   if (!EnsureInitialized(e, k)) return nullptr;
+  VMethod* ctor = DecodeMethodId(methodID);
+  // String 构造面：ART 中 <init> 是真实构造器，JNI NewObject 与解释器同语义；
+  // 本 VM 的 String 为 VString 布局、<init> 是骨架，直调 InvokeMethod 只会得到
+  // 空串（加固 native new String(byte[]) 重建字符串常量的失败根因）。统一由
+  // StringFactory 规则生成内容。
+  if (ctor != nullptr && k->descriptor == "Ljava/lang/String;" &&
+      ctor->declaring != nullptr &&
+      ctor->declaring->descriptor == "Ljava/lang/String;") {
+    VString* made = nullptr;
+    if (!dexvm::runtime::BuildJniStringCtor(*e->vmstate, ctor, vargs.data(), vargs.size(),
+                                            &made)) {
+      return nullptr;  // pending exception
+    }
+#if DEXVM_CALL_DIAGNOSTICS
+    if (NativeDiagActive()) {
+      DEXVM_JNI_DIAG("NewObjectString",
+                     "value=\"" + DiagStr(reinterpret_cast<ObjHeader*>(made), 64) + "\"");
+    }
+#endif
+    return EncodeObj(e, made);
+  }
   VObject* obj = AllocInstance(e, k);  // String -> 空 VString（AllocEmptyString 语义）
   if (obj == nullptr) {
     dexvm::runtime::ThrowOutOfMemoryError(*e->vmstate, "NewObject");
     return nullptr;
   }
-  VMethod* ctor = DecodeMethodId(methodID);
+#if DEXVM_CALL_DIAGNOSTICS
+  DEXVM_JNI_DIAG("NewObject", DiagMethodDesc(ctor));
+  // 加固 native 经 new String(byte[]) 重建字符串常量；记录字节内容，
+  // 判定空串来自 native 侧常量还是 VM String.<init>([B) 语义缺口。
+  if (NativeDiagActive() && ctor != nullptr && ctor->declaring != nullptr &&
+      ctor->declaring->descriptor == "Ljava/lang/String;" && ctor->name == "<init>" &&
+      !vargs.empty() && vargs[0].ref != nullptr && vargs[0].ref->klass != nullptr &&
+      vargs[0].ref->klass->descriptor == "[B") {
+    VArray* arr = reinterpret_cast<VArray*>(vargs[0].ref);
+    std::string d = "len=" + std::to_string(arr->length) + " [";
+    const uint8_t* slots = arr->data();
+    for (int i = 0; i < arr->length && i < 48; i++) {
+      char b[4];
+      std::snprintf(b, sizeof(b), "%02x", static_cast<unsigned>(slots[i * 8]));
+      d += b;
+    }
+    d += "]";
+    DEXVM_JNI_DIAG("NewStringFromBytes", d);
+  }
+#endif
   if (ctor != nullptr) {
     std::vector<Value> args;
     args.reserve(vargs.size() + 1);
@@ -910,6 +1060,12 @@ jobject NewObjectCommon(JNIEnvExt* e, jclass clazz, jmethodID methodID,
       return nullptr;
     }
   }
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive() && k->descriptor == "Ljava/lang/String;") {
+    DEXVM_JNI_DIAG("NewObjectString", "value=\"" +
+                                          DiagStr(reinterpret_cast<ObjHeader*>(obj), 64) + "\"");
+  }
+#endif
   return EncodeObj(e, obj);
 }
 
@@ -949,7 +1105,7 @@ jclass JniGetObjectClass(JNIEnv* env, jobject obj) {
     dexvm::runtime::ThrowNullPointerException(*e->vmstate, "GetObjectClass null");
     return nullptr;
   }
-  return FromHandle<jclass>(e->locals.Add(reinterpret_cast<ObjHeader*>(o->klass)));
+  return FromHandle<jclass>(e->Locals().Add(reinterpret_cast<ObjHeader*>(o->klass)));
 }
 
 jboolean JniIsInstanceOf(JNIEnv* env, jobject obj, jclass clazz) {
@@ -966,6 +1122,13 @@ jmethodID JniGetMethodID(JNIEnv* env, jclass clazz, const char* name, const char
   VClass* k = DecodeClass(e, clazz);
   if (k == nullptr || !EnsureInitialized(e, k)) return nullptr;
   VMethod* m = FindMethod(k, name, sig, /*want_static=*/false);
+#if DEXVM_CALL_DIAGNOSTICS
+  {
+    std::string d = k->descriptor + " " + (name != nullptr ? name : "?") +
+                    (sig != nullptr ? sig : "?") + (m != nullptr ? " ok" : " FAIL");
+    DEXVM_JNI_DIAG("GetMethodID", d);
+  }
+#endif
   if (m == nullptr) {
     e->vmstate->ThrowNew("Ljava/lang/NoSuchMethodError;",
                          std::string(name != nullptr ? name : "") + " " +
@@ -980,6 +1143,13 @@ jmethodID JniGetStaticMethodID(JNIEnv* env, jclass clazz, const char* name, cons
   VClass* k = DecodeClass(e, clazz);
   if (k == nullptr || !EnsureInitialized(e, k)) return nullptr;
   VMethod* m = FindMethod(k, name, sig, /*want_static=*/true);
+#if DEXVM_CALL_DIAGNOSTICS
+  {
+    std::string d = k->descriptor + " " + (name != nullptr ? name : "?") +
+                    (sig != nullptr ? sig : "?") + (m != nullptr ? " ok" : " FAIL");
+    DEXVM_JNI_DIAG("GetStaticMethodID", d);
+  }
+#endif
   if (m == nullptr) {
     e->vmstate->ThrowNew("Ljava/lang/NoSuchMethodError;",
                          std::string(name != nullptr ? name : "") + " " +
@@ -992,7 +1162,47 @@ jmethodID JniGetStaticMethodID(JNIEnv* env, jclass clazz, const char* name, cons
 // ---- Call 族共核 ----
 bool CallCore(JNIEnvExt* e, jobject obj, jmethodID methodID, const std::vector<Value>& args,
               Value* result, bool do_virtual) {
-  return InvokeJni(e, DecodeMethodId(methodID), obj, args, result, do_virtual);
+  VMethod* m = DecodeMethodId(methodID);
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive()) {
+    std::string d = DiagMethodDesc(m);
+    d += " recv=";
+    d += DiagObjDesc(e, obj);
+    ObjHeader* ro = DecodeObj(e, obj);
+    if (DiagIsStr(ro)) d += " \"" + DiagStr(ro, 64) + "\"";
+    // 仅引用型形参可解引用（int/float 形参的联合体低半槽不是指针）。
+    for (size_t i = 0; i < args.size() && i < 2 && m != nullptr &&
+                       i < m->param_types.size();
+         i++) {
+      const std::string& pt = m->param_types[i];
+      if ((pt[0] == 'L' || pt[0] == '[') && args[i].ref != nullptr &&
+          DiagIsStr(args[i].ref)) {
+        d += " arg" + std::to_string(i) + "=\"" + DiagStr(args[i].ref, 64) + "\"";
+      }
+    }
+    DEXVM_JNI_DIAG(do_virtual ? "Call" : "CallNonvirtual", d);
+  }
+#endif
+  bool ok = InvokeJni(e, m, obj, args, result, do_virtual);
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive()) {
+    std::string d = DiagMethodDesc(m);
+    const bool ref_ret =
+        m != nullptr && !m->return_type.empty() &&
+        (m->return_type[0] == 'L' || m->return_type[0] == '[');
+    if (!ok) {
+      d += " THREW";
+    } else if (ref_ret && DiagIsStr(result->ref)) {
+      d += " ret=\"" + DiagStr(result->ref, 64) + "\"";
+    } else if (ref_ret && result->ref != nullptr && result->ref->klass != nullptr) {
+      d += " retcls=" + result->ref->klass->descriptor;
+    } else {
+      d += " ret=null";
+    }
+    DEXVM_JNI_DIAG("ret", d);
+  }
+#endif
+  return ok;
 }
 
 // Call 族宏（虚派发）：FailRet = 失败（异常挂起）返回值；RetExpr = 成功返回值表达式
@@ -1071,7 +1281,42 @@ bool CallCore(JNIEnvExt* e, jobject obj, jmethodID methodID, const std::vector<V
 // 静态 Call 族共核（receiver 忽略）
 bool CallStaticCore(JNIEnvExt* e, jmethodID methodID, const std::vector<Value>& args,
                     Value* result) {
-  return InvokeJni(e, DecodeMethodId(methodID), nullptr, args, result, false);
+  VMethod* m = DecodeMethodId(methodID);
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive()) {
+    std::string d = DiagMethodDesc(m);
+    for (size_t i = 0; i < args.size() && i < 2 && m != nullptr &&
+                       i < m->param_types.size();
+         i++) {
+      const std::string& pt = m->param_types[i];
+      if ((pt[0] == 'L' || pt[0] == '[') && args[i].ref != nullptr &&
+          DiagIsStr(args[i].ref)) {
+        d += " arg" + std::to_string(i) + "=\"" + DiagStr(args[i].ref, 64) + "\"";
+      }
+    }
+    DEXVM_JNI_DIAG("CallStatic", d);
+  }
+#endif
+  bool ok = InvokeJni(e, m, nullptr, args, result, false);
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive()) {
+    std::string d = DiagMethodDesc(m);
+    const bool ref_ret =
+        m != nullptr && !m->return_type.empty() &&
+        (m->return_type[0] == 'L' || m->return_type[0] == '[');
+    if (!ok) {
+      d += " THREW";
+    } else if (ref_ret && DiagIsStr(result->ref)) {
+      d += " ret=\"" + DiagStr(result->ref, 64) + "\"";
+    } else if (ref_ret && result->ref != nullptr && result->ref->klass != nullptr) {
+      d += " retcls=" + result->ref->klass->descriptor;
+    } else {
+      d += " ret=null";
+    }
+    DEXVM_JNI_DIAG("ret", d);
+  }
+#endif
+  return ok;
 }
 
 #define DEFINE_CALL_STATIC_FAMILY(Name, RetType, FailRet, RetExpr)                              \
@@ -1132,6 +1377,13 @@ jfieldID JniGetFieldID(JNIEnv* env, jclass clazz, const char* name, const char* 
   VClass* k = DecodeClass(e, clazz);
   if (k == nullptr || !EnsureInitialized(e, k)) return nullptr;
   VField* f = FindField(k, name, sig, /*want_static=*/false);
+#if DEXVM_CALL_DIAGNOSTICS
+  {
+    std::string d = k->descriptor + " " + (name != nullptr ? name : "?") +
+                    (sig != nullptr ? sig : "?") + (f != nullptr ? " ok" : " FAIL");
+    DEXVM_JNI_DIAG("GetFieldID", d);
+  }
+#endif
   if (f == nullptr) {
     e->vmstate->ThrowNew("Ljava/lang/NoSuchFieldError;",
                          std::string(name != nullptr ? name : "") + " " +
@@ -1280,7 +1532,18 @@ jobject JniGetStaticObjectField(JNIEnv* env, jclass, jfieldID fid) {
   VField* f = DecodeFieldId(fid);
   Value* slot = (f != nullptr) ? StaticSlot(e, f) : nullptr;
   if (slot == nullptr) return nullptr;
-  return EncodeObj(e, reinterpret_cast<ObjHeader*>(static_cast<uintptr_t>(slot->l)));
+  jobject h = EncodeObj(e, reinterpret_cast<ObjHeader*>(static_cast<uintptr_t>(slot->l)));
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive() && f != nullptr) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "0x%llx",
+                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(h)));
+    std::string d = (f->declaring != nullptr ? f->declaring->descriptor : "?") + "." + f->name +
+                    " -> " + buf;
+    DEXVM_JNI_DIAG("GetStaticObjectField", d);
+  }
+#endif
+  return h;
 }
 void JniSetStaticObjectField(JNIEnv* env, jclass, jfieldID fid, jobject value) {
   JNIEnvExt* e = Ext(env);
@@ -1420,6 +1683,13 @@ jfieldID JniGetStaticFieldID(JNIEnv* env, jclass clazz, const char* name, const 
   VClass* k = DecodeClass(e, clazz);
   if (k == nullptr || !EnsureInitialized(e, k)) return nullptr;
   VField* f = FindField(k, name, sig, /*want_static=*/true);
+#if DEXVM_CALL_DIAGNOSTICS
+  {
+    std::string d = k->descriptor + " " + (name != nullptr ? name : "?") +
+                    (sig != nullptr ? sig : "?") + (f != nullptr ? " ok" : " FAIL");
+    DEXVM_JNI_DIAG("GetStaticFieldID", d);
+  }
+#endif
   if (f == nullptr) {
     e->vmstate->ThrowNew("Ljava/lang/NoSuchFieldError;",
                          std::string(name != nullptr ? name : "") + " " +
@@ -1436,6 +1706,13 @@ jstring JniNewStringUTF(JNIEnv* env, const char* bytes) {
   if (bytes == nullptr) return nullptr;
   std::u16string chars;
   Mutf8ToChars(bytes, &chars);
+#if DEXVM_CALL_DIAGNOSTICS
+  {
+    std::string d = "\"" + std::string(bytes).substr(0, 64) + "\" len=" +
+                    std::to_string(std::strlen(bytes));
+    DEXVM_JNI_DIAG("NewStringUTF", d);
+  }
+#endif
 #if defined(__ANDROID__)
   // TEMP DIAG（NetworkMonitorDecorator 空串来源；事后移除）。
   if (chars.empty()) {
@@ -1454,7 +1731,7 @@ jstring JniNewStringUTF(JNIEnv* env, const char* bytes) {
     dexvm::runtime::ThrowOutOfMemoryError(*e->vmstate, "NewStringUTF");
     return nullptr;
   }
-  return FromHandle<jstring>(e->locals.Add(s));
+  return FromHandle<jstring>(e->Locals().Add(s));
 }
 
 jstring JniNewString(JNIEnv* env, const jchar* unicode, jsize len) {
@@ -1475,7 +1752,7 @@ jstring JniNewString(JNIEnv* env, const jchar* unicode, jsize len) {
     dexvm::runtime::ThrowOutOfMemoryError(*e->vmstate, "NewString");
     return nullptr;
   }
-  return FromHandle<jstring>(e->locals.Add(s));
+  return FromHandle<jstring>(e->Locals().Add(s));
 }
 
 VString* DecodeString(JNIEnvExt* e, jstring str) {
@@ -1518,6 +1795,12 @@ const char* JniGetStringUTFChars(JNIEnv* env, jstring str, jboolean* isCopy) {
   if (s == nullptr) return nullptr;
   if (isCopy != nullptr) *isCopy = JNI_TRUE;
   std::string utf8 = s->ToModifiedUtf8();  // MUTF-8（内嵌 NUL = C0 80）
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive()) {
+    std::string d = "\"" + utf8.substr(0, 64) + "\" len=" + std::to_string(utf8.size());
+    DEXVM_JNI_DIAG("GetStringUTFChars", d);
+  }
+#endif
   char* buf = static_cast<char*>(std::malloc(utf8.size() + 1));
   if (buf == nullptr) return nullptr;
   std::memcpy(buf, utf8.data(), utf8.size());
@@ -1588,7 +1871,7 @@ jobjectArray JniNewObjectArray(JNIEnv* env, jsize length, jclass elementClass,
     StoreSlot(arr->data() + static_cast<size_t>(i) * 8,
               static_cast<uint64_t>(reinterpret_cast<uintptr_t>(init)));
   }
-  return FromHandle<jobjectArray>(e->locals.Add(arr));
+  return FromHandle<jobjectArray>(e->Locals().Add(arr));
 }
 
 jobject JniGetObjectArrayElement(JNIEnv* env, jobjectArray array, jsize index) {
@@ -1624,11 +1907,13 @@ void JniSetObjectArrayElement(JNIEnv* env, jobjectArray array, jsize index, jobj
 
 #define DEFINE_ARRAY_FAMILY(Type, Name, Prim, NarrowKind)                                     \
   Type##Array JniNew##Name##Array(JNIEnv* env, jsize length) {                                 \
+    DEXVM_JNI_DIAG("New" #Name "Array", std::to_string(length));                               \
     return (Type##Array) NewPrimArray<Prim>(Ext(env), length);                                 \
   }                                                                                           \
   Type* JniGet##Name##ArrayElements(JNIEnv* env, Type##Array array, jboolean* isCopy) {        \
     JNIEnvExt* e = Ext(env);                                                                  \
     VArray* a = DecodeArray(e, array, "Get" #Name "ArrayElements");                           \
+    DEXVM_JNI_DIAG("Get" #Name "ArrayElements", a == nullptr ? "<null>" : std::to_string(a->length)); \
     return a == nullptr ? nullptr : GetArrayElementsT<Type, NarrowKind>(e, a, isCopy);         \
   }                                                                                           \
   void JniRelease##Name##ArrayElements(JNIEnv* env, Type##Array array, Type* elems, jint mode) { \
@@ -1641,12 +1926,16 @@ void JniSetObjectArrayElement(JNIEnv* env, jobjectArray array, jsize index, jobj
                                  Type* buf) {                                                 \
     JNIEnvExt* e = Ext(env);                                                                  \
     VArray* a = DecodeArray(e, array, "Get" #Name "ArrayRegion");                             \
+    DEXVM_JNI_DIAG("Get" #Name "ArrayRegion",                                                  \
+                   "start=" + std::to_string(start) + " len=" + std::to_string(len));          \
     if (a != nullptr) GetArrayRegionT<Type, NarrowKind>(e, a, start, len, buf);                \
   }                                                                                           \
   void JniSet##Name##ArrayRegion(JNIEnv* env, Type##Array array, jsize start, jsize len,       \
                                  const Type* buf) {                                           \
     JNIEnvExt* e = Ext(env);                                                                  \
     VArray* a = DecodeArray(e, array, "Set" #Name "ArrayRegion");                             \
+    DEXVM_JNI_DIAG("Set" #Name "ArrayRegion",                                                  \
+                   "start=" + std::to_string(start) + " len=" + std::to_string(len));          \
     if (a != nullptr) SetArrayRegionT<Type, NarrowKind>(e, a, start, len, buf);                \
   }
 
@@ -1806,7 +2095,7 @@ jobjectRefType JniGetObjectRefType(JNIEnv* env, jobject obj) {
   Handle h = ToHandle(obj);
   switch (GetHandleKind(h)) {
     case RefKind::kLocal:
-      return e->locals.Contains(h) ? JNILocalRefType : JNIInvalidRefType;
+      return e->Locals().Contains(h) ? JNILocalRefType : JNIInvalidRefType;
     case RefKind::kGlobal: {
       RefKind k = e->vm->globals.Classify(h);
       return k == RefKind::kGlobal ? JNIGlobalRefType : JNIInvalidRefType;
@@ -2151,14 +2440,37 @@ void JavaVMExt::Detach(JNIEnvExt* env) {
 
 void InitJavaVMExt(JavaVMExt* vm) { vm->functions = &kVmTable; }
 
+namespace {
+// 会话线程上的 Env（guest task 结束钩子回收其 per-task local 表用；carrier
+// 与任务运行在同一 OS 线程）。
+thread_local JNIEnvExt* g_tls_env = nullptr;
+}  // namespace
+
 void InitJNIEnvExt(JNIEnvExt* env, JavaVMExt* vm, VMState* state) {
   env->functions = &kJniTable;
   env->vmstate = state;
   env->vm = vm;
   if (vm != nullptr) vm->Attach(env);
+  g_tls_env = env;
+  runtime::SetGuestTaskEndHook(&ReleaseTaskLocalRefs);
   RegisterEnvForState(state, env);  // 解释器 hook：VMState -> JNIEnvExt
   // 汇合点：解释器对 jni_native_fn 方法的派发经此钩子走 JNI trampoline
   runtime::SetNativeCallHook(static_cast<runtime::NativeCallHook>(&InvokeNativeTrampoline));
+}
+
+LocalRefTable& JNIEnvExt::Locals() {
+  const dexvm::runtime::GuestSchedOps* ops = dexvm::runtime::GuestSched();
+  void* task = (ops != nullptr && ops->current_task != nullptr) ? ops->current_task() : nullptr;
+  if (task == nullptr) return locals;
+  auto it = task_locals.find(task);
+  if (it == task_locals.end()) {
+    it = task_locals.emplace(task, std::make_unique<LocalRefTable>()).first;
+  }
+  return *it->second;
+}
+
+void ReleaseTaskLocalRefs(void* task) {
+  if (g_tls_env != nullptr) g_tls_env->task_locals.erase(task);
 }
 
 jobject EncodeJObject(JNIEnvExt* env, ObjHeader* obj) { return EncodeObj(env, obj); }
@@ -2214,11 +2526,30 @@ std::string NormalizeJniClassDescriptor(const char* name) {
   return desc;
 }
 
-NativeCallScope::NativeCallScope(JNIEnvExt* env, jint capacity) : env_(env) {
+NativeCallScope::NativeCallScope(JNIEnvExt* env, jint capacity)
+    : table_(&env->Locals()) {
   (void)capacity;
-  env_->locals.PushFrame();
+  table_->PushFrame();
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive()) {
+    DEXVM_JNI_DIAG("scope+", "depth=" + std::to_string(table_->frame_depth()) +
+                                 " native=" + NativeDiagCurrentNative());
+  }
+#endif
 }
 
-NativeCallScope::~NativeCallScope() { env_->locals.PopFrame(); }
+NativeCallScope::~NativeCallScope() {
+#if DEXVM_CALL_DIAGNOSTICS
+  size_t before = table_->frame_depth();
+#endif
+  table_->PopFrame();
+#if DEXVM_CALL_DIAGNOSTICS
+  if (NativeDiagActive()) {
+    DEXVM_JNI_DIAG("scope-", "depth " + std::to_string(before) + "->" +
+                                 std::to_string(table_->frame_depth()) + " native=" +
+                                 NativeDiagCurrentNative());
+  }
+#endif
+}
 
 }  // namespace dexvm::jni

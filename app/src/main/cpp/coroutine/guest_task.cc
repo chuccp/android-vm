@@ -17,6 +17,7 @@ extern "C" void dexvm_fiber_init(void* buf, void* trampoline, void* stack_top);
 #include <cstdio>
 #include <cstdlib>
 
+#include "core/builtins.h"
 #include "coroutine/scheduler.h"
 
 namespace dexvm::coroutine {
@@ -116,6 +117,8 @@ GuestTask::GuestTask(Scheduler* scheduler, uint64_t task_id, Entry entry,
 }
 
 GuestTask::~GuestTask() {
+  // 按 task 持有的 JNI local 引用表回收（jni 侧钩子；未接线为空操作）
+  dexvm::runtime::NotifyGuestTaskEnd(this);
   // 安全网：未回收则回收 fiber 栈
   if (fiber_.stack_base != nullptr) {
     ReclaimFiber();

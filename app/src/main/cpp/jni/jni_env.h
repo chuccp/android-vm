@@ -16,6 +16,8 @@
 
 #include <cstdarg>
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -529,7 +531,14 @@ struct CriticalPin {
 };
 
 struct JNIEnvExt : _JNIEnv {
-  LocalRefTable locals;                      // local 引用表（frame 分层）
+  LocalRefTable locals;                      // 非 guest-task 上下文（宿主/VM 启动期）
+  // guest task（fiber）各自的 local 引用表：多 task 在同一 OS 线程协作切换，
+  // 共用一张 frame 栈时跨 task 的 Push/Pop 会交错（A 的 native 返回时弹掉 B
+  // 的帧 → B 已建句柄成陈旧引用；加固 native 跨 JNI 回调缓存 jobject 的面会
+  // 命中）。ART 中 local ref 本就是线程私有，这里按 task 拆分。
+  std::map<void*, std::unique_ptr<LocalRefTable>> task_locals;
+  // 当前上下文应使用的 local 表（guest task 上下文取其表，否则 base 表）。
+  LocalRefTable& Locals();
   dexvm::runtime::VMState* vmstate = nullptr;  // GuestTask 的 VM 状态（异常挂点）
   JavaVMExt* vm = nullptr;
   dexvm::runtime::VObject* class_loader = nullptr;  // FindClass loader override（nativeLoad/OnLoad）
@@ -552,6 +561,8 @@ struct JavaVMExt : _JavaVM {
 // 初始化（填充函数表指针）
 void InitJavaVMExt(JavaVMExt* vm);
 void InitJNIEnvExt(JNIEnvExt* env, JavaVMExt* vm, dexvm::runtime::VMState* state);
+// guest task 结束回收其 local 引用表（core 任务结束钩子接缝）。
+void ReleaseTaskLocalRefs(void* task);
 
 // ---- 编解码（docs 05 章 15.3/15.4）----
 jobject EncodeJObject(JNIEnvExt* env, dexvm::runtime::ObjHeader* obj);  // -> 当前 local frame
@@ -581,7 +592,7 @@ class NativeCallScope {
   NativeCallScope& operator=(const NativeCallScope&) = delete;
 
  private:
-  JNIEnvExt* env_;
+  LocalRefTable* table_;  // 进入时确定（按 task 分表）；析构弹同一张表
 };
 
 }  // namespace dexvm::jni

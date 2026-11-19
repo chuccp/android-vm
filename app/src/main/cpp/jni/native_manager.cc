@@ -4,6 +4,8 @@
 
 #include <dlfcn.h>
 
+#include <deque>
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -23,7 +25,99 @@
 #include "core/interpreter.h"
 #include "jni/jni_env.h"
 
+#ifndef DEXVM_CALL_DIAGNOSTICS
+#define DEXVM_CALL_DIAGNOSTICS 0
+#endif
+
 namespace dexvm::jni {
+
+// ---- 调用期诊断（TEMP DIAG；默认构建空实现）----
+// 只对加固 native（com/bangcle/andjni）开启，避免 PAG/MMKV 等高频 native 把
+// 预算耗尽；budget 上限兜底 logcat 体量。
+#if defined(__ANDROID__) && DEXVM_CALL_DIAGNOSTICS
+namespace {
+thread_local int g_native_diag_depth = 0;
+thread_local std::string g_native_diag_owner;
+thread_local std::vector<std::string> g_native_any_stack;
+thread_local std::deque<std::string> g_native_ring;
+}  // namespace
+
+bool NativeDiagBegin(runtime::VMethod* m) {
+  if (m != nullptr && m->declaring != nullptr) {
+    g_native_any_stack.push_back(m->declaring->descriptor + "." + m->name);
+  }
+  if (m == nullptr || m->declaring == nullptr) return false;
+  if (m->declaring->descriptor.rfind("Lcom/bangcle/andjni/", 0) != 0) return false;
+  ++g_native_diag_depth;
+  if (g_native_diag_depth == 1) {
+    g_native_diag_owner = m->declaring->descriptor + "." + m->name;
+    static std::atomic<int> begin_logs{0};
+    if (begin_logs.fetch_add(1) < 16) {
+      Dl_info di{};
+      const char* fname = "?";
+      unsigned long long foff = 0;
+      if (m->jni_native_fn != nullptr && dladdr(m->jni_native_fn, &di) != 0 &&
+          di.dli_fbase != nullptr) {
+        if (di.dli_fname != nullptr) fname = di.dli_fname;
+        foff = static_cast<unsigned long long>(
+            reinterpret_cast<uintptr_t>(m->jni_native_fn) -
+            reinterpret_cast<uintptr_t>(di.dli_fbase));
+      }
+      __android_log_print(ANDROID_LOG_INFO, "DexVmNativeJni",
+                          "enter %s.%s fn=%p %s+0x%llx", m->declaring->descriptor.c_str(),
+                          m->name.c_str(), m->jni_native_fn, fname, foff);
+    }
+  }
+  return true;
+}
+
+void NativeDiagEnd(bool entered) {
+  if (!g_native_any_stack.empty()) g_native_any_stack.pop_back();
+  if (!entered) return;
+  if (g_native_diag_depth > 0) {
+    --g_native_diag_depth;
+    if (g_native_diag_depth == 0) g_native_diag_owner.clear();
+  }
+}
+
+bool NativeDiagActive() { return g_native_diag_depth > 0; }
+
+int NativeDiagDepth() { return g_native_diag_depth; }
+
+void NativeDiagRecord(const std::string& entry) {
+  if (g_native_ring.size() >= 600) g_native_ring.pop_front();
+  g_native_ring.push_back(entry);
+}
+
+void NativeDiagDumpRing(const char* why) {
+  static std::atomic<int> dumps{0};
+  if (dumps.fetch_add(1) >= 4) return;
+  __android_log_print(ANDROID_LOG_INFO, "DexVmNativeJni", "ring dump (%s) entries=%zu", why,
+                      g_native_ring.size());
+  size_t i = 0;
+  for (const auto& e : g_native_ring) {
+    __android_log_print(ANDROID_LOG_INFO, "DexVmRing", "%03zu %s", i++, e.c_str());
+  }
+}
+
+std::string NativeDiagCurrentNative() {
+  return g_native_any_stack.empty() ? std::string() : g_native_any_stack.back();
+}
+
+void NativeDiagLog(const char* fn, const std::string& detail) {
+  if (!NativeDiagActive()) return;
+  NativeDiagRecord(std::string(fn) + " " + detail);
+}
+#else
+bool NativeDiagBegin(runtime::VMethod*) { return false; }
+void NativeDiagEnd(bool) {}
+std::string NativeDiagCurrentNative() { return std::string(); }
+int NativeDiagDepth() { return 0; }
+void NativeDiagRecord(const std::string&) {}
+void NativeDiagDumpRing(const char*) {}
+bool NativeDiagActive() { return false; }
+void NativeDiagLog(const char*, const std::string&) {}
+#endif
 
 namespace {
 
@@ -529,6 +623,7 @@ bool InvokeNativeTrampoline(JNIEnvExt* env, VMethod* m, ObjHeader* self, const V
   void* fn = m->jni_native_fn;
   Value res{};
   const char rtype = m->return_type.empty() ? 'V' : m->return_type[0];
+  const bool diag_entered = NativeDiagBegin(m);
   switch (rtype) {
     case 'V':
       CallGrid<void>(fn, env, self_ref, g, gparams, fp, nf, stack_args, nstack);
@@ -590,6 +685,7 @@ bool InvokeNativeTrampoline(JNIEnvExt* env, VMethod* m, ObjHeader* self, const V
       break;
     }
   }
+  NativeDiagEnd(diag_entered);
 #if defined(__aarch64__)
   // 诊断（临时）：ABI 硬墙报告本笔 native 调用违规改写了哪些被调用者保存
   // 寄存器；tp 变化 = 线程 TLS 迁移（另一类问题）。

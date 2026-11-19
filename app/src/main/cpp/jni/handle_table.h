@@ -77,6 +77,8 @@ class LocalRefTable {
   // no-op 返回 false（ART：JNI WARNING + dump 栈，不抛异常，docs 15.15）。
   bool Remove(Handle h);
   bool Contains(Handle h) const;            // GetObjectRefType 校验
+  // 诊断面（陈旧句柄归因）：槽状态（index/generation/live/retired/frame_depth）。
+  std::string DescribeHandle(Handle h) const;
 
   // EnsureLocalCapacity 真实容量核算（docs 15.12）：
   // 可再建 capacity 个 local 引用（live < kMaxLocalRefs）返回 true。

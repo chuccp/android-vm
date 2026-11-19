@@ -105,6 +105,24 @@ bool LocalRefTable::Remove(Handle h) {
   return true;
 }
 
+std::string LocalRefTable::DescribeHandle(Handle h) const {
+  uint32_t index = 0, generation = 0;
+  if (GetHandleKind(h) != RefKind::kLocal) return "kind-not-local";
+  if (!DecodeHandle(h, &index, &generation)) return "decode-fail";
+  std::string r = "idx=" + std::to_string(index) + " gen=" + std::to_string(generation) +
+                  " cur_depth=" + std::to_string(frames_.size());
+  if (index >= slots_.size()) {
+    r += " slots=" + std::to_string(slots_.size()) + " (out-of-range)";
+    return r;
+  }
+  const Slot& s = slots_[index];
+  r += " live=" + std::to_string(s.live ? 1 : 0) +
+       " slot_gen=" + std::to_string(s.generation) +
+       " created_depth=" + std::to_string(s.frame_depth) +
+       " retired=" + std::to_string(s.retired ? 1 : 0);
+  return r;
+}
+
 bool LocalRefTable::Contains(Handle h) const {
   uint32_t index = 0, generation = 0;
   if (GetHandleKind(h) != RefKind::kLocal) return false;

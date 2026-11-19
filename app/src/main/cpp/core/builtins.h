@@ -125,6 +125,9 @@ inline constexpr unsigned kGuestStackBytes = 4u * 1024 * 1024;
 const GuestSchedOps* VmSchedBackendOps();
 const GuestSchedOps* GuestSched();        // 未装载 = nullptr（旧单流）
 void SetGuestSchedOps(const GuestSchedOps* ops);
+// guest task 结束回调（JNI local 引用表等按 task 资源回收接缝；nullptr = 无）。
+void SetGuestTaskEndHook(void (*fn)(void* task));
+void NotifyGuestTaskEnd(void* task);
 
 // 主流程驱动：以 main GuestTask 执行 fn（Thread.start/join、Object.wait 的
 // 协程 wait/wake 要求 guest 执行处于 guest task 上下文）；未装载接线时直通

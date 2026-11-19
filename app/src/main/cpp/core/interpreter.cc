@@ -1532,6 +1532,196 @@ bool CheckClassDefinition(VMState& state, VClass* klass) {
 
 // ---- InvokeMethod / ExecuteFrame ----
 
+// JNI NewObject(String, ...) 承接面（interpreter.h 声明）。
+// ART 中 String.<init> 是真实构造器，JNI NewObject 与解释器 invoke 同语义；
+// 本 VM 的 String 是 VString 布局、<init> 为无 code 骨架，JNI 直调
+// InvokeMethod 不会填充内容（加固 native 以 new String(byte[]) 重建字符串
+// 常量时得到空串 → H.d("") 解密失败）。此处按 DoStringFactory 同一套规则
+// 从构造器实参（不含 this）生成内容并分配 VString。
+bool BuildJniStringCtor(VMState& state, VMethod* ctor, const Value* args, size_t argc,
+                        VString** out) {
+  if (out == nullptr) return false;
+  *out = nullptr;
+  if (ctor == nullptr) {
+    ThrowNullPointerException(state, "constructor == null");
+    return false;
+  }
+  const std::vector<std::string>& pt = ctor->param_types;
+  if (argc < pt.size()) {
+    state.ThrowNew("Ljava/lang/IllegalArgumentException;", "String.<init> arity mismatch");
+    return false;
+  }
+  auto ref_at = [&](size_t i) -> ObjHeader* { return args[i].ref; };
+  auto read_bytes = [&](ObjHeader* src, int32_t offset, int32_t count, bool whole,
+                        std::vector<uint8_t>* bytes) -> bool {
+    if (src == nullptr) {
+      ThrowNullPointerException(state, "data == null");
+      return false;
+    }
+    VArray* arr = static_cast<VArray*>(src);
+    if (whole) {
+      offset = 0;
+      count = arr->length;
+    }
+    if (offset < 0 || count < 0 || offset > arr->length ||
+        count > arr->length - offset) {
+      state.ThrowNew("Ljava/lang/StringIndexOutOfBoundsException;",
+                     "offset=" + std::to_string(offset) +
+                         ",count=" + std::to_string(count) +
+                         ",length=" + std::to_string(arr->length));
+      return false;
+    }
+    bytes->reserve(static_cast<size_t>(count));
+    for (int32_t i = 0; i < count; i++) {
+      bytes->push_back(static_cast<uint8_t>(LoadSlot(arr->data() + (offset + i) * 8) & 0xffu));
+    }
+    return true;
+  };
+  std::u16string chars;
+  if (pt.empty()) {
+    // <init>() -> 空串
+  } else if (pt.size() == 1 && pt[0] == "Ljava/lang/String;") {
+    ObjHeader* src = ref_at(0);
+    if (src == nullptr) {
+      ThrowNullPointerException(state, "toCopy == null");
+      return false;
+    }
+    VString* s = static_cast<VString*>(src);
+    chars.assign(s->chars(), s->chars() + s->length);
+  } else if (pt.size() == 1 && pt[0] == "[C") {
+    VArray* arr = static_cast<VArray*>(ref_at(0));
+    if (arr == nullptr) {
+      ThrowNullPointerException(state, "data == null");
+      return false;
+    }
+    chars.reserve(static_cast<size_t>(arr->length));
+    for (int32_t i = 0; i < arr->length; i++) {
+      chars.push_back(static_cast<char16_t>(LoadSlot(arr->data() + i * 8) & 0xffffu));
+    }
+  } else if (pt.size() == 3 && pt[0] == "[C" && pt[1] == "I" && pt[2] == "I") {
+    VArray* arr = static_cast<VArray*>(ref_at(0));
+    if (arr == nullptr) {
+      ThrowNullPointerException(state, "data == null");
+      return false;
+    }
+    int32_t offset = args[1].i;
+    int32_t count = args[2].i;
+    if (offset < 0 || count < 0 || offset > arr->length ||
+        count > arr->length - offset) {
+      state.ThrowNew("Ljava/lang/StringIndexOutOfBoundsException;",
+                     "length=" + std::to_string(arr->length) +
+                         "; regionStart=" + std::to_string(offset) +
+                         "; regionLength=" + std::to_string(count));
+      return false;
+    }
+    for (int32_t i = 0; i < count; i++) {
+      chars.push_back(
+          static_cast<char16_t>(LoadSlot(arr->data() + (offset + i) * 8) & 0xffffu));
+    }
+  } else if (pt.size() == 1 && pt[0] == "[B") {
+    std::vector<uint8_t> bytes;
+    if (!read_bytes(ref_at(0), 0, 0, /*whole=*/true, &bytes)) return false;
+    Utf8ToChars(bytes, &chars);
+  } else if (pt.size() == 3 && pt[0] == "[B" && pt[1] == "I" && pt[2] == "I") {
+    std::vector<uint8_t> bytes;
+    if (!read_bytes(ref_at(0), args[1].i, args[2].i, /*whole=*/false, &bytes)) return false;
+    Utf8ToChars(bytes, &chars);
+  } else if ((pt.size() == 2 || pt.size() == 4) && pt[0] == "[B" &&
+             pt[pt.size() - 1] == "Ljava/nio/charset/Charset;") {
+    std::vector<uint8_t> bytes;
+    const bool whole = pt.size() == 2;
+    if (!read_bytes(ref_at(0), whole ? 0 : args[1].i, whole ? 0 : args[2].i, whole,
+                    &bytes)) {
+      return false;
+    }
+    ObjHeader* charset = ref_at(pt.size() - 1);
+    if (charset == nullptr) {
+      ThrowNullPointerException(state, "charset == null");
+      return false;
+    }
+    std::string name;
+    if (!CharsetObjectName(state, reinterpret_cast<VObject*>(charset), &name) ||
+        !DecodeByCharsetName(bytes, name, &chars)) {
+      if (state.HasPendingException()) state.ClearException();
+      chars.clear();
+      Utf8ToChars(bytes, &chars);
+    }
+  } else if ((pt.size() == 2 || pt.size() == 4) && pt[0] == "[B" &&
+             pt[pt.size() - 1] == "Ljava/lang/String;") {
+    std::vector<uint8_t> bytes;
+    const bool whole = pt.size() == 2;
+    if (!read_bytes(ref_at(0), whole ? 0 : args[1].i, whole ? 0 : args[2].i, whole,
+                    &bytes)) {
+      return false;
+    }
+    ObjHeader* name_obj = ref_at(pt.size() - 1);
+    if (name_obj == nullptr) {
+      ThrowNullPointerException(state, "charsetName == null");
+      return false;
+    }
+    VString* name_str = static_cast<VString*>(name_obj);
+    std::string name = NormalizeCharsetForName(name_str->chars(), name_str->length);
+    if (!DecodeByCharsetName(bytes, name, &chars)) {
+      std::string raw;
+      for (int32_t i = 0; i < name_str->length; i++) {
+        char16_t c = name_str->chars()[i];
+        raw.push_back(c <= 0x7F ? static_cast<char>(c) : '?');
+      }
+      state.ThrowNew("Ljava/io/UnsupportedEncodingException;", raw);
+      return false;
+    }
+  } else if (pt.size() == 1 && (pt[0] == "Ljava/lang/StringBuilder;" ||
+                                pt[0] == "Ljava/lang/StringBuffer;" ||
+                                pt[0] == "Ljava/lang/CharSequence;")) {
+    ObjHeader* src = ref_at(0);
+    if (src == nullptr) {
+      ThrowNullPointerException(state, "toCopy == null");
+      return false;
+    }
+    if (src->klass != nullptr && src->klass->descriptor == "Ljava/lang/StringBuilder;") {
+      const uint8_t* base = reinterpret_cast<VObject*>(src)->field_data();
+      uint64_t slot;
+      std::memcpy(&slot, base + 0, sizeof(slot));
+      VArray* buf = reinterpret_cast<VArray*>(static_cast<uintptr_t>(slot));
+      std::memcpy(&slot, base + 8, sizeof(slot));
+      int32_t count = static_cast<int32_t>(slot);
+      if (buf != nullptr) {
+        for (int32_t i = 0; i < count && i < buf->length; i++) {
+          chars.push_back(static_cast<char16_t>(LoadSlot(buf->data() + i * 8) & 0xffffu));
+        }
+      }
+    } else {
+      VMethod probe;
+      probe.name = "toString";
+      probe.param_types = {};
+      probe.return_type = "Ljava/lang/String;";
+      VMethod* m = src->klass != nullptr ? src->klass->FindInterfaceImpl(&probe) : nullptr;
+      if (m == nullptr) {
+        ThrowUnsupportedOperationException(state, "String.<init>(CharSequence): no toString");
+        return false;
+      }
+      Value call_args[1] = {};
+      call_args[0].ref = src;
+      Value r{};
+      if (!InvokeMethod(state, m, call_args, 1, &r)) return false;
+      if (r.ref != nullptr) {
+        VString* s = static_cast<VString*>(r.ref);
+        chars.assign(s->chars(), s->chars() + s->length);
+      }
+    }
+  } else {
+    ThrowUnsupportedOperationException(state, "String.<init> signature not supported");
+    return false;
+  }
+  VString* created = state.linker != nullptr ? state.linker->AllocString(chars) : nullptr;
+  if (created == nullptr) {
+    ThrowOOM(state, "String.<init> allocation failed");
+    return false;
+  }
+  *out = created;
+  return true;
+}
+
 // 解释器 C++ 栈护栏（StackOverflowError 预检）：JNI->guest->JNI 递归解释帧
 // 深撞 fiber guard page = SIGSEGV/SIGBUS（vm-crash 位型；2MB/4MB fiber 都有
 // 深链打穿面）。按当前 guest task 的 fiber 栈边界动态判定
