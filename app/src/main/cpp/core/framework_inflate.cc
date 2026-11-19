@@ -744,6 +744,9 @@ void SetChildLayoutParams(InflateContext& ctx, VObject* parent, VObject* view,
   SetIntFieldByName(lp, "bottomMargin", ov.margin_bottom);
   if (VField* f = FindFieldInChain(view->klass, "mLayoutParams")) {
     SetRefField(view, f->offset, reinterpret_cast<ObjHeader*>(lp));
+    // AOSP View.setLayoutParams -> resolveLayoutParams（inflater 直写字段的
+    // 等价补点；ConstraintLayout 只读 resolved* 锚点）。
+    ResolveLayoutParamsDirection(ctx.state, reinterpret_cast<ObjHeader*>(lp), 0);
   }
   ApplyCoordinatorBehavior(ctx, lp, ov.behavior);
 }

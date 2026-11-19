@@ -400,6 +400,26 @@ void EnsureLayoutParamsForAdd(VMState& state, VObject* parent, VObject* child) {
 }
 }  // namespace
 
+// AOSP View.resolveLayoutParams 等价面：把 LP 的 START/END 锚点按已解析的布局
+// 方向落成 resolved* 槽（ConstraintLayout.LayoutParams 覆写本方法；缺失时
+// ConstraintLayout.applyConstraints 在 SDK>=17 只读 resolved 字段，仅单侧约束
+// 的子视图（rightToRight 等）会全部落 0 —— 顶部导航右图标容器压到 tab 行、
+// 其它靠右/靠底元素错位的根因）。
+void ResolveLayoutParamsDirection(VMState& state, ObjHeader* lp, int32_t direction) {
+  if (lp == nullptr || lp->klass == nullptr) return;
+  VMethod probe;
+  probe.name = "resolveLayoutDirection";
+  probe.param_types = {"I"};
+  probe.return_type = "V";
+  VMethod* m = lp->klass->FindInterfaceImpl(&probe);
+  if (m == nullptr) return;  // 基类 LayoutParams 无此面（VM 内建）——跳过
+  Value av[2] = {};
+  av[0].ref = lp;
+  av[1].i = direction;
+  Value out{};
+  dexvm::runtime::InvokeMethod(state, m, av, 2, &out);
+}
+
 Value VGAddView(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   *ok = true;
   if (n < 1 || args[0].ref == nullptr) {
@@ -487,6 +507,7 @@ Value VGAddView2(VMState& state, VObject* self, const Value* args, size_t n, boo
   if (params != nullptr) {
     if (VField* f = FindInstanceField(child->klass, "mLayoutParams")) {
       SetRefField(child, f->offset, params);
+      ResolveLayoutParamsDirection(state, params, 0);  // LTR（VM getLayoutDirection 恒 0）
     }
   }
   Value av[2] = {};
@@ -506,6 +527,7 @@ Value VGAttachViewToParent(VMState& state, VObject* self, const Value* args, siz
   if (n >= 3 && args[2].ref != nullptr) {
     if (VField* pf = FindInstanceField(child->klass, "mLayoutParams")) {
       SetRefField(child, pf->offset, const_cast<ObjHeader*>(args[2].ref));
+      ResolveLayoutParamsDirection(state, const_cast<ObjHeader*>(args[2].ref), 0);
     }
   }
   Value av[2] = {};
@@ -1031,11 +1053,12 @@ Value ViewGetLayoutParams(VMState& state, VObject* self, const Value* args, size
 }
 
 Value ViewSetLayoutParams(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
-  (void)state;
   *ok = true;
   if (n >= 1) {
     VField* f = FindInstanceField(self->klass, "mLayoutParams");
     if (f != nullptr) SetRefField(self, f->offset, args[0].ref);
+    // AOSP View.setLayoutParams -> resolveLayoutParams()（布局方向解析）。
+    ResolveLayoutParamsDirection(state, args[0].ref, 0);
   }
   return Value{};
 }
@@ -1329,14 +1352,18 @@ Value ViewPost(VMState& state, VObject* self, const Value* args, size_t n, bool*
   return HandlerPost(state, handler, args, n, ok);
 }
 
-// animate()：返回 lib ViewPropertyAnimator（NewLibObject；链式语义由 lib 承担）。
+// animate()：返回绑定 self 的 lib ViewPropertyAnimator（链式 setter 即时落值；
+// VM 无帧泵，动画按"立即到达终态"近似）。
 Value ViewAnimate(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   (void)args;
   (void)n;
   *ok = true;
   Value r{};
   bool tok = true;
-  VObject* anim = NewLibObject(state, "Landroid/view/ViewPropertyAnimator;", {}, nullptr, 0, &tok);
+  Value self_arg{};
+  self_arg.ref = self;
+  VObject* anim = NewLibObject(state, "Landroid/view/ViewPropertyAnimator;",
+                               {"Landroid/view/View;"}, &self_arg, 1, &tok);
   if (!tok) {
     *ok = false;
     return Value{};

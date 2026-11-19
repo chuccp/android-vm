@@ -549,7 +549,14 @@ public final class UiBridgeMaterializer {
             v = new ImageView(context);
         } else if (cls.endsWith("Button") || cls.contains("Button")) {
             v = new Button(context);
-        } else if (cls.contains("Switch")) {
+        } else if (cls.endsWith("TextSwitcher") || cls.endsWith("ViewSwitcher") ||
+                   cls.endsWith("ViewAnimator")) {
+            // 搜索栏提示轮播（SearchTextSwitcher 等）：快照文本挂在切换器节点上，
+            // 容器物化不会出字；按文本叶节点出画（轮播态取当前文本）。
+            v = new TextView(context);
+        } else if (cls.endsWith("Switch") || cls.endsWith("SwitchCompat")) {
+            // 仅精确开关类（TextSwitcher/ViewSwitcher 含 "Switch" 子串——搜索栏
+            // 的提示轮播被误物化成 Switch 的根因）。
             v = new Switch(context);
         } else if (cls.endsWith("TextView")) {
             v = new TextView(context);
@@ -826,6 +833,14 @@ public final class UiBridgeMaterializer {
         for (PatchOp op : ops) {
             switch (op.op) {
                 case PATCH_ADD: {
+                    // 同一 objectId 重加（快照/patch 交叠）：先摘掉旧视图，
+                    // 否则旧实例留在父容器里与新实例重叠（位置/点击错乱根因）。
+                    View prev = views.get(op.objectId);
+                    if (prev != null) {
+                        if (prev.getParent() instanceof ViewGroup) {
+                            ((ViewGroup) prev.getParent()).removeView(prev);
+                        }
+                    }
                     Node node = new Node();
                     node.objectId = op.objectId;
                     node.handleKind = op.handleKind;

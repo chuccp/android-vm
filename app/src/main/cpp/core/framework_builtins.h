@@ -156,4 +156,9 @@ size_t IdleHandlerRuns();
 // ——AOSP 消息只在所属线程派发，全量泵会让后台工作挤占主线程）。
 bool PumpAllLooperQueues(VMState& state, std::string* error);
 
+// AOSP View.resolveLayoutParams 等价面：LP 的 START/END 锚点按布局方向落
+// resolved* 槽（ConstraintLayout.LayoutParams 覆写 resolveLayoutDirection；
+// inflater/addView 直写 mLayoutParams 的路径必须补此调用）。direction=0 即 LTR。
+void ResolveLayoutParamsDirection(VMState& state, ObjHeader* lp, int32_t direction);
+
 }  // namespace dexvm::runtime

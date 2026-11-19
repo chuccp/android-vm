@@ -9,7 +9,16 @@ import android.animation.TimeInterpolator;
  */
 public class ViewPropertyAnimator {
 
-    ViewPropertyAnimator() {
+    // 无参面保留给 VM 旧构造路径；绑定 View 后链式 setter 即时落到目标值
+    // （VM 无帧泵：动画语义按"立即到达终态"近似，避免停在动画起始偏移）。
+    private final View mView;
+
+    public ViewPropertyAnimator() {
+        this(null);
+    }
+
+    public ViewPropertyAnimator(View view) {
+        this.mView = view;
     }
 
     private long mDuration = -1;
@@ -59,14 +68,17 @@ public class ViewPropertyAnimator {
     }
 
     public ViewPropertyAnimator alpha(float value) {
+        if (mView != null) mView.setAlpha(value);
         return this;
     }
 
     public ViewPropertyAnimator translationX(float value) {
+        if (mView != null) mView.setTranslationX(value);
         return this;
     }
 
     public ViewPropertyAnimator translationY(float value) {
+        if (mView != null) mView.setTranslationY(value);
         return this;
     }
 
@@ -95,10 +107,12 @@ public class ViewPropertyAnimator {
     }
 
     public ViewPropertyAnimator x(float value) {
+        if (mView != null) mView.setTranslationX(value - mView.getLeft());
         return this;
     }
 
     public ViewPropertyAnimator y(float value) {
+        if (mView != null) mView.setTranslationY(value - mView.getTop());
         return this;
     }
 
