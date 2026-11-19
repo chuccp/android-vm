@@ -7,6 +7,8 @@
 //     探针 TU 内，core 不引入 TLS 库依赖）。
 #include "core/tls_bridge.h"
 
+#include "core/boot_network.h"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -379,6 +381,12 @@ void TlsResume() {
 Value TlsNativeOpen(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   (void)self;
   *ok = true;
+  if (BootNetworkOffline()) {
+    // 首帧前离线启动：TLS 请求立即失败，app 走本地配置/骨架。
+    state.ThrowNew("Ljava/io/IOException;", "network offline during boot");
+    *ok = false;
+    return Value{};
+  }
   if (n < 3 || args[0].ref == nullptr) {
     state.ThrowNew("Ljava/lang/NullPointerException;", "TLS host");
     *ok = false;

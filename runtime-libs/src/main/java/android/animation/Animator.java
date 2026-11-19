@@ -44,8 +44,11 @@ public abstract class Animator implements Cloneable {
         return 0;
     }
 
-    public Animator setInterpolator(TimeInterpolator value) {
-        return this;
+    public void setInterpolator(TimeInterpolator value) {
+    }
+
+    public TimeInterpolator getInterpolator() {
+        return null;
     }
 
     public boolean isRunning() {

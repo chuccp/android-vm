@@ -72,6 +72,13 @@ enum PropKey : uint16_t {
   kPropVideoPath = 18,        // kString  — VideoView.mVideoPath（宿主真播放）
   kPropVideoSeek = 19,        // kInt     — VideoView.mVideoSeek
   kPropVideoPlaying = 20,     // kBool    — VideoView.mVideoPlaying
+  // 布局面（traversal 未收敛时宿主 measure/layout 的输入；已收敛时仅作辅助）。
+  kPropLayoutGravity = 21,    // kInt     — ViewGroup.LayoutParams.gravity
+  kPropOrientation = 22,      // kInt     — LinearLayout.mOrientation（0 H / 1 V）
+  kPropLayoutMargins = 23,    // kRect    — LayoutParams 四边 margin
+  kPropLayoutWeight = 24,     // kFloat   — LinearLayout$LayoutParams.weight
+  kPropLayoutKind = 25,       // kInt     — 1 Linear / 2 Frame / 3 Relative /
+                              //            4 ScrollView / 0 其他（宿主布局语义）
 };
 
 struct PropValue {

@@ -1195,6 +1195,17 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                        ActAddContentView);
     AddIntrinsicMethod(activity, "getIntent", {}, "Landroid/content/Intent;", pub, ActGetIntent);
     AddIntrinsicMethod(activity, "getWindow", {}, "Landroid/view/Window;", pub, ActGetWindow);
+    AddIntrinsicMethod(activity, "getWindowManager", {}, "Landroid/view/WindowManager;", pub,
+                       [](VMState& s, VObject*, const Value*, size_t, bool* ok) {
+                         *ok = true;
+                         Value r{};
+                         bool good = true;
+                         VObject* wm = NewLibObject(s, "Landroid/view/WindowManagerImpl;", {},
+                                                    nullptr, 0, &good);
+                         if (wm == nullptr) s.ClearException();
+                         r.ref = reinterpret_cast<ObjHeader*>(wm);
+                         return r;
+                       });
     AddIntrinsicMethod(activity, "getApplication", {}, "Landroid/app/Application;", pub,
                        ActGetApplication);
     AddIntrinsicMethod(activity, "getTitle", {}, "Ljava/lang/CharSequence;", pub, ReturnNull);
@@ -1743,6 +1754,49 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
     AddIntrinsicMethod(vm_assets, "open", {"Ljava/lang/String;"}, "[B", stat, VmAssetsOpen);
   }
 
+  // java.security.VmDigest：lib sun.security.provider 摘要 SPI 的原生桥
+  // （启动期 JarVerifier 全 APK 摘要校验热点；AOSP 口径 MessageDigest 由
+  // native Conscrypt/BoringSSL 承接，这里由 libdexvm C++ 摘要实现承接）。
+  VClass* vm_digest = MakeClass(linker, &all, "Ljava/security/VmDigest;", object, 0, pub);
+  if (vm_digest != nullptr) {
+    AddIntrinsicMethod(vm_digest, "create", {"Ljava/lang/String;"}, "J", stat, VmDigestCreate);
+    AddIntrinsicMethod(vm_digest, "update", {"J", "[B", "I", "I"}, "V", stat, VmDigestUpdate);
+    AddIntrinsicMethod(vm_digest, "digest", {"J"}, "[B", stat, VmDigestDigest);
+    AddIntrinsicMethod(vm_digest, "reset", {"J"}, "V", stat, VmDigestReset);
+    AddIntrinsicMethod(vm_digest, "close", {"J"}, "V", stat, VmDigestClose);
+  }
+
+  // java.util.VmLinkedList：lib LinkedList 节点遍历原生桥（启动期 app 模块
+  // 追踪按 index 反复取节点，解释器下是 O(n²) 调用开销热点）。
+  // android.graphics.VmFonts：lib Typeface/FontFamily/Paint 的宿主字体桥
+  // （真 Typeface 创建 + 文本度量；AOSP：字体解析与 shaping 在平台 native）。
+  VClass* vm_fonts = MakeClass(linker, &all, "Landroid/graphics/VmFonts;", object, 0, pub);
+  if (vm_fonts != nullptr) {
+    AddIntrinsicMethod(vm_fonts, "available", {}, "Z", stat, VmFontsAvailable);
+    AddIntrinsicMethod(vm_fonts, "createFromFamily", {"Ljava/lang/String;", "I"}, "J", stat,
+                       VmFontsCreateFromFamily);
+    AddIntrinsicMethod(vm_fonts, "createFromFile", {"Ljava/lang/String;", "I"}, "J", stat,
+                       VmFontsCreateFromFile);
+    AddIntrinsicMethod(vm_fonts, "restyle", {"J", "I"}, "J", stat, VmFontsRestyle);
+    AddIntrinsicMethod(vm_fonts, "createFromResource", {"I", "I"}, "J", stat,
+                       VmFontsCreateFromResource);
+    AddIntrinsicMethod(vm_fonts, "measureText", {"J", "Ljava/lang/String;", "F"}, "F", stat,
+                       VmFontsMeasureText);
+    AddIntrinsicMethod(vm_fonts, "fontMetrics", {"J", "F", "[I"}, "Z", stat,
+                       VmFontsFontMetrics);
+  }
+
+  VClass* vm_linked_list =
+      MakeClass(linker, &all, "Ljava/util/VmLinkedList;", object, 0, pub);
+  if (vm_linked_list != nullptr) {
+    AddIntrinsicMethod(vm_linked_list, "get",
+                       {"Ljava/util/LinkedList;", "I"}, "Ljava/lang/Object;", stat,
+                       VmLinkedListGet);
+    AddIntrinsicMethod(vm_linked_list, "node",
+                       {"Ljava/util/LinkedList;", "I"}, "Ljava/lang/Object;", stat,
+                       VmLinkedListNode);
+  }
+
   // android.hardware.VmSensors：lib SensorManager 的宿主传感器桥钩子
   // （list() 描述表、pollEvent([F[J)I 事件轮询；宿主 SensorBridge.java 推送）。
   VClass* vm_sensors =
@@ -2068,6 +2122,22 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                        });
     AddIntrinsicMethod(view, "setVisibility", {"I"}, "V", pub, ViewSetVisibility);
     AddIntrinsicMethod(view, "getVisibility", {}, "I", pub, ViewGetVisibility);
+    AddIntrinsicMethod(view, "getBackground", {}, "Landroid/graphics/drawable/Drawable;", pub,
+                       ViewGetBackground);
+    AddIntrinsicMethod(view, "onScrollChanged", {"I", "I", "I", "I"}, "V", pub,
+                       ViewOnScrollChanged);
+    // AOSP View.setBackgroundColor：字段态落 mBackgroundColor（宿主物化器按
+    // 该字段出画；程序化设置的骨架/占位背景因此可显示）。
+    AddIntrinsicMethod(view, "setBackgroundColor", {"I"}, "V", pub,
+                       [](VMState& s, VObject* self, const Value* a, size_t n, bool* ok) {
+                         (void)s;
+                         *ok = true;
+                         if (n >= 1) {
+                           VField* f = FindInstanceField(self->klass, "mBackgroundColor");
+                           if (f != nullptr) SetIField(self, f->offset, a[0].i);
+                         }
+                         return Value{};
+                       });
     AddIntrinsicMethod(view, "setOnClickListener", {"Landroid/view/View$OnClickListener;"}, "V",
                        pub, NoOp);
     // 长尾面（需求清单批补充）
@@ -2416,8 +2486,6 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
            {"Landroid/view/ScaleGestureDetector;"}},
           {"Landroid/view/ScaleGestureDetector$OnScaleGestureListener;", "onScaleEnd", "V",
            {"Landroid/view/ScaleGestureDetector;"}},
-          {"Landroid/view/ViewStub$OnInflateListener;", "onInflate", "V",
-           {"Landroid/view/ViewStub;", "Landroid/view/View;"}},
           {"Landroid/view/ViewGroup$OnHierarchyChangeListener;", "onChildViewAdded", "V",
            {"Landroid/view/View;", "Landroid/view/View;"}},
           {"Landroid/view/ViewGroup$OnHierarchyChangeListener;", "onChildViewRemoved", "V",
@@ -2737,6 +2805,40 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                          "Landroid/view/ViewParent;", pub, ReturnNull);
       AddIntrinsicMethod(view_group, "getParentForAccessibility", {}, "Landroid/view/ViewParent;",
                          pub, ViewGetParent);
+      // ViewGroup 绘制/布局开关长尾面：guest 布局与 RecyclerView 初始化会调用
+      // （缺注册 = NoSuchMethodError，measure 整链中止）。这些开关不改变 VM
+      // 的 measure/layout 结果，按 AOSP 默认值空转。
+      AddIntrinsicMethod(view_group, "setChildrenDrawingOrderEnabled", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "getChildrenDrawingOrderEnabled", {}, "Z", pub, NoOp);
+      AddIntrinsicMethod(view_group, "setClipChildren", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "getClipChildren", {}, "Z", pub, ReturnTrue);
+      AddIntrinsicMethod(view_group, "setClipToPadding", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "getClipToPadding", {}, "Z", pub, ReturnTrue);
+      AddIntrinsicMethod(view_group, "setAddStatesFromChildren", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "addStatesFromChildren", {}, "Z", pub, NoOp);
+      AddIntrinsicMethod(view_group, "setAlwaysDrawnWithCacheEnabled", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "isAlwaysDrawnWithCacheEnabled", {}, "Z", pub, ReturnTrue);
+      AddIntrinsicMethod(view_group, "setAnimationCacheEnabled", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "isAnimationCacheEnabled", {}, "Z", pub, ReturnTrue);
+      AddIntrinsicMethod(view_group, "setPersistentDrawingCache", {"I"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "getPersistentDrawingCache", {}, "I", pub, NoOp);
+      AddIntrinsicMethod(view_group, "setLayoutMode", {"I"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "getLayoutMode", {}, "I", pub, NoOp);
+      AddIntrinsicMethod(view_group, "setLayoutTransition",
+                         {"Landroid/animation/LayoutTransition;"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "getLayoutTransition", {},
+                         "Landroid/animation/LayoutTransition;", pub, ReturnNull);
+      AddIntrinsicMethod(view_group, "setTransitionGroup", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "isTransitionGroup", {}, "Z", pub, NoOp);
+      AddIntrinsicMethod(view_group, "setTouchscreenBlocksFocus", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "getTouchscreenBlocksFocus", {}, "Z", pub, NoOp);
+      AddIntrinsicMethod(view_group, "setKeyboardNavigationCluster", {"Z"}, "V", pub, NoOp);
+      AddIntrinsicMethod(view_group, "isKeyboardNavigationCluster", {}, "Z", pub, NoOp);
+      AddIntrinsicMethod(view_group, "setMotionEventSplittingEnabled", {"Z"}, "V", pub, NoOp);
+      // AOSP ViewGroup.onScrollChanged：滚动容器 layout 期回调（缺注册 =
+      // NoSuchMethodError，traversal layout 中止）。
+      AddIntrinsicMethod(view_group, "onScrollChanged", {"I", "I", "I", "I"}, "V", pub,
+                         ViewOnScrollChanged);
     }
     // ViewGroup$LayoutParams（width/height 公开字段 + 构造面）
     layout_params =
@@ -3394,7 +3496,27 @@ bool PumpLooperQueuesRealtime(VMState& state, std::string* error, size_t* dispat
     ObjHeader* ex = state.pending_exception;
     std::string desc =
         ex != nullptr && ex->klass != nullptr ? ex->klass->descriptor : "Ljava/lang/Throwable;";
-    diag = "guest exception " + desc;
+    std::string msg;
+    if (ex != nullptr && ex->klass != nullptr) {
+      VObject* obj = reinterpret_cast<VObject*>(ex);
+      for (VClass* k = obj->klass; k != nullptr && msg.empty(); k = k->super_class) {
+        for (const auto& f : k->instance_fields) {
+          if (f.name == "detailMessage") {
+            ObjHeader* s = GetRefField(obj, f.offset);
+            if (s != nullptr) msg = static_cast<VString*>(s)->ToModifiedUtf8();
+            break;
+          }
+        }
+      }
+    }
+    diag = "guest exception " + desc + (msg.empty() ? "" : ": " + msg);
+#if defined(__ANDROID__)
+    __android_log_print(ANDROID_LOG_INFO, "DexVmPump", "%s", diag.c_str());
+    for (size_t i = 0; i < state.last_throw_backtrace.size() && i < 12; i++) {
+      __android_log_print(ANDROID_LOG_INFO, "DexVmPump", "  at %s",
+                          state.last_throw_backtrace[i].c_str());
+    }
+#endif
     state.ClearException();
   }
   if (error != nullptr) *error = diag;

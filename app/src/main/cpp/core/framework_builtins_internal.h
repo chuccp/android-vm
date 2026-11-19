@@ -175,6 +175,33 @@ Value CtxGetResources(VMState& state, VObject* self, const Value* args, size_t n
 Value ResGetAssets(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ResGetSystem(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value VmAssetsOpen(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+
+// java.security.VmDigest：lib sun.security.provider.* 的原生摘要桥（framework_digest.cc）。
+Value VmDigestCreate(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmDigestUpdate(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmDigestDigest(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmDigestReset(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmDigestClose(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+
+// java.util.VmLinkedList：lib LinkedList 节点遍历原生桥（framework_collections.cc）。
+Value VmLinkedListGet(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmLinkedListNode(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+
+// android.graphics.VmFonts：字体/文本度量桥（framework_font.cc）。
+Value VmFontsAvailable(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmFontsCreateFromFamily(VMState& state, VObject* self, const Value* args, size_t n,
+                              bool* ok);
+Value VmFontsCreateFromFile(VMState& state, VObject* self, const Value* args, size_t n,
+                            bool* ok);
+Value VmFontsRestyle(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmFontsCreateFromResource(VMState& state, VObject* self, const Value* args, size_t n,
+                                bool* ok);
+Value VmFontsMeasureText(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmFontsFontMetrics(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+// render 管线文本度量（宿主真字体；false=桥不可用回落网格）
+bool HostMeasureTextUtf16(const uint16_t* chars, int32_t len, float text_size,
+                          float* out_width);
+bool HostFontMetricsInt(float text_size, int32_t out[5]);
 Value CtxGetSharedPreferences(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value CtxGetSharedPreferencesPath(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value CtxGetString(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
@@ -521,6 +548,8 @@ Value ViewSetTagKeyed(VMState& state, VObject* self, const Value* args, size_t n
 Value ViewSetTranslationX(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewSetTranslationY(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewSetVisibility(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value ViewGetBackground(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value ViewOnScrollChanged(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewGetContext(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewInit(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewSetPadding(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);

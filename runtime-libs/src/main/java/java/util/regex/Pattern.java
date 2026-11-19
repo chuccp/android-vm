@@ -17,8 +17,10 @@ public final class Pattern {
     public static final int UNICODE_CHARACTER_CLASS = 0x100;
 
     private final com.google.re2j.Pattern implementation;
+    private final String original;
 
     private Pattern(String expression, int flags) {
+        this.original = expression;
         int translatedFlags = flags & (
             com.google.re2j.Pattern.CASE_INSENSITIVE |
                 com.google.re2j.Pattern.MULTILINE |
@@ -27,15 +29,26 @@ public final class Pattern {
         if ((flags & LITERAL) != 0) {
             source = quote(source);
         }
+        com.google.re2j.Pattern impl;
         try {
-            implementation =
-                com.google.re2j.Pattern.compile(source, translatedFlags);
-        } catch (com.google.re2j.PatternSyntaxException failure) {
-            throw new PatternSyntaxException(
-                failure.getDescription(),
-                failure.getPattern(),
-                failure.getIndex());
+            impl = com.google.re2j.Pattern.compile(source, translatedFlags);
+        } catch (com.google.re2j.PatternSyntaxException first) {
+            // re2j 不认 Java 的 POSIX 字符类（\p{Digit}/\p{XDigit} 等，
+            // Kotlin toFloatOrNull 的 float regex 即此类）。按语义翻译后重试；
+            // 翻译不了仍按原异常抛出。
+            String translated = translateJavaCharacterClasses(source);
+            if (translated.equals(source)) {
+                throw new PatternSyntaxException(
+                    first.getDescription(), first.getPattern(), first.getIndex());
+            }
+            try {
+                impl = com.google.re2j.Pattern.compile(translated, translatedFlags);
+            } catch (com.google.re2j.PatternSyntaxException second) {
+                throw new PatternSyntaxException(
+                    second.getDescription(), second.getPattern(), second.getIndex());
+            }
         }
+        this.implementation = impl;
     }
 
     public static Pattern compile(String expression) {
@@ -58,7 +71,7 @@ public final class Pattern {
     }
 
     public String pattern() {
-        return implementation.pattern();
+        return original;
     }
 
     public int flags() {
@@ -98,6 +111,113 @@ public final class Pattern {
 
     Map<String, Integer> namedGroups() {
         return implementation.namedGroups();
+    }
+
+    /**
+     * Java/POSIX 预定义字符类 -> re2j 可编译形态。
+     *
+     * <p>Java 的 \p{Digit}/\p{XDigit}/\p{Alpha} 等是 java.util.regex 的
+     * 命名类，re2j 只认 Unicode 类别（\p{Nd}/\p{L}…）。仅在被 re2j 拒绝
+     * 后调用；字符类内的 XDigit/Blank/ASCII 需要以区间形式展开（避免嵌套
+     * 方括号），类外则用 [...] 包装。
+     */
+    private static String translateJavaCharacterClasses(String expression) {
+        StringBuilder out = new StringBuilder(expression.length() + 16);
+        int classDepth = 0;
+        for (int i = 0; i < expression.length();) {
+            char c = expression.charAt(i);
+            if (c == '\\' && i + 2 < expression.length()
+                    && (expression.charAt(i + 1) == 'p' || expression.charAt(i + 1) == 'P')
+                    && expression.charAt(i + 2) == '{') {
+                int end = expression.indexOf('}', i + 3);
+                if (end > 0) {
+                    String name = expression.substring(i + 3, end);
+                    String mapped = mapJavaCharacterClass(
+                        name, expression.charAt(i + 1) == 'P', classDepth > 0);
+                    if (mapped != null) {
+                        out.append(mapped);
+                        i = end + 1;
+                        continue;
+                    }
+                }
+            }
+            if (c == '\\' && i + 1 < expression.length()) {
+                out.append(c).append(expression.charAt(i + 1));
+                i += 2;
+                continue;
+            }
+            if (c == '[') {
+                classDepth++;
+            } else if (c == ']' && classDepth > 0) {
+                classDepth--;
+            }
+            out.append(c);
+            i++;
+        }
+        return out.toString();
+    }
+
+    private static String mapJavaCharacterClass(String name, boolean negated,
+                                                boolean insideClass) {
+        switch (name) {
+            case "Digit":
+            case "IsDigit":
+            case "javaDigit":
+                return negated ? "\\P{Nd}" : "\\p{Nd}";
+            case "Alphabetic":
+            case "IsAlphabetic":
+            case "Alpha":
+            case "IsAlpha":
+            case "IsLetter":
+            case "javaAlphabetic":
+            case "javaLetter":
+                return negated ? "\\P{L}" : "\\p{L}";
+            case "Lower":
+            case "IsLower":
+            case "javaLowerCase":
+                return negated ? "\\P{Ll}" : "\\p{Ll}";
+            case "Upper":
+            case "IsUpper":
+            case "javaUpperCase":
+                return negated ? "\\P{Lu}" : "\\p{Lu}";
+            case "Space":
+            case "IsSpace":
+            case "javaWhitespace":
+                return negated ? "\\S" : "\\s";
+            case "Punct":
+            case "IsPunct":
+                return negated ? "\\P{P}" : "\\p{P}";
+            case "Cntrl":
+            case "IsCntrl":
+                return negated ? "\\P{Cc}" : "\\p{Cc}";
+            case "Alnum":
+            case "IsAlnum":
+            case "javaLetterOrDigit":
+                if (negated) {
+                    return insideClass ? null : "[^\\p{L}\\p{Nd}]";
+                }
+                return insideClass ? "\\p{L}\\p{Nd}" : "[\\p{L}\\p{Nd}]";
+            case "XDigit":
+            case "IsXDigit":
+                if (negated) {
+                    return insideClass ? null : "[^0-9A-Fa-f]";
+                }
+                return insideClass ? "0-9A-Fa-f" : "[0-9A-Fa-f]";
+            case "Blank":
+            case "IsBlank":
+                if (negated) {
+                    return insideClass ? null : "[^ \\t]";
+                }
+                return insideClass ? " \\t" : "[ \\t]";
+            case "ASCII":
+            case "IsASCII":
+                if (negated) {
+                    return insideClass ? null : "[^\\x00-\\x7F]";
+                }
+                return insideClass ? "\\x00-\\x7F" : "[\\x00-\\x7F]";
+            default:
+                return null;
+        }
     }
 
     private static String translateNamedGroups(String expression) {

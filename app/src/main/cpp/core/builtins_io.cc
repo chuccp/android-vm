@@ -2,6 +2,7 @@
 // 纯移动自 core/builtins.cc（零行为变更；注册/绑定仍在 registrar）。
 
 #include "core/builtins.h"
+#include "core/boot_network.h"
 
 #include <algorithm>
 #include <array>
@@ -1122,6 +1123,12 @@ long long MonotonicNowMs();
 
 // socketConnect(InetAddress, port, timeout)：非阻塞 connect + 协程化就绪等待
 Value NetSocketConnect(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  if (BootNetworkOffline()) {
+    // 首帧前离线启动：app 的配置/埋点请求立即失败，走本地默认配置出骨架。
+    state.ThrowNew("Ljava/net/ConnectException;", "network offline during boot");
+    *ok = false;
+    return Value{};
+  }
   if (n < 3 || args[0].ref == nullptr) {
     state.ThrowNew("Ljava/lang/NullPointerException;", "socketConnect address");
     *ok = false;
@@ -1841,6 +1848,11 @@ Value NetGetLocalHostName(VMState& state, VObject* self, const Value* args, size
 Value NetLookupAllHostAddr(VMState& state, VObject* self, const Value* args, size_t n,
                            bool* ok) {
   (void)self;
+  if (BootNetworkOffline()) {
+    state.ThrowNew("Ljava/net/UnknownHostException;", "network offline during boot");
+    *ok = false;
+    return Value{};
+  }
   if (n < 1 || args[0].ref == nullptr) {
     state.ThrowNew("Ljava/net/UnknownHostException;", "null hostname");
     *ok = false;

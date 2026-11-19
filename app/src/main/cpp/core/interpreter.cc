@@ -28,6 +28,13 @@
 #include <unistd.h>
 #endif
 
+// 调用期诊断开关（默认 0）：源码中的 TEMP DIAG 块保留用于具体缺陷复现，
+// 但它们在每次 guest 调用/字段读写上做描述符字符串比较（启动期实测可达
+// 数秒级纯开销），默认不编译执行。需要归因时以 -DDEXVM_CALL_DIAGNOSTICS=1 构建。
+#ifndef DEXVM_CALL_DIAGNOSTICS
+#define DEXVM_CALL_DIAGNOSTICS 0
+#endif
+
 #include "core/builtins.h"
 #include "core/class_linker.h"
 #include "core/exception.h"
@@ -510,10 +517,10 @@ VMethod* FindSuperMethod(VClass* caller_class, VMethod* resolved) {
 VMethod* FindImplDeep(VClass* k, const VMethod& target) {
   for (VClass* c = k; c != nullptr; c = c->super_class) {
     for (auto& m : c->virtual_methods) {
-      if (m.HasCode() && SameSignature(m, target)) return &m;
+      if (m.HasImplementation() && SameSignature(m, target)) return &m;
     }
     for (auto& m : c->direct_methods) {
-      if (!m.IsStatic() && m.HasCode() && SameSignature(m, target)) return &m;
+      if (!m.IsStatic() && m.HasImplementation() && SameSignature(m, target)) return &m;
     }
     for (VClass* iface : c->interfaces) {
       std::vector<VClass*> stack{iface};
@@ -522,7 +529,7 @@ VMethod* FindImplDeep(VClass* k, const VMethod& target) {
         stack.pop_back();
         if (cur == nullptr) continue;
         for (auto& m : cur->virtual_methods) {
-          if (m.HasCode() && SameSignature(m, target)) return &m;
+          if (m.HasImplementation() && SameSignature(m, target)) return &m;
         }
         for (VClass* pi : cur->interfaces) stack.push_back(pi);
       }
@@ -946,6 +953,25 @@ bool DoStringFactory(VMState& state, Frame& frame, VMethod* resolved, const Call
   return true;
 }
 
+namespace {
+// 启动期慢方法采样：DoCall 入口记录当前 guest 方法（仅 profile 开启时做
+// 原子交换）；宿主侧采样线程周期性读取，定位 MainActivity.onCreate 内的热点。
+std::atomic<bool> g_method_profile_on{false};
+std::atomic<VMethod*> g_current_method{nullptr};
+
+struct MethodProfileGuard {
+  VMethod* prev = nullptr;
+  explicit MethodProfileGuard(VMethod* m) {
+    if (g_method_profile_on.load(std::memory_order_relaxed)) {
+      prev = g_current_method.exchange(m, std::memory_order_relaxed);
+    }
+  }
+  ~MethodProfileGuard() {
+    if (prev != nullptr) g_current_method.store(prev, std::memory_order_relaxed);
+  }
+};
+}  // namespace
+
 // ---- DoCall（docs 03 章 11.6 / 12 章 22.5）----
 
 bool DoCall(VMState& state, Frame& frame, VMethod* resolved, InvokeKind kind,
@@ -1014,7 +1040,7 @@ bool DoCall(VMState& state, Frame& frame, VMethod* resolved, InvokeKind kind,
                                rk->descriptor);
             return false;
           }
-          if (!target->HasCode()) {
+          if (!target->HasImplementation()) {
             // 命中抽象无码声明：接口 default 深搜回落（Java 8 超接口 default 体，
             // 如 List <- Collection.isEmpty；见 FindImplDeep 注释）
             if (VMethod* impl = FindImplDeep(rk, *resolved)) target = impl;
@@ -1030,6 +1056,52 @@ bool DoCall(VMState& state, Frame& frame, VMethod* resolved, InvokeKind kind,
     state.ThrowNew("Ljava/lang/NoSuchMethodError;", MethodSigStr(resolved));
     return false;
   }
+#if defined(__ANDROID__)
+  // 热点调用者归因（仅 profile 窗口，限量）：摘要校验与 LinkedList 遍历的
+  // 直接调用链——定位启动期 onCreate 热点的来源（JarVerifier 等）。
+  if (g_method_profile_on.load(std::memory_order_relaxed) && target->declaring != nullptr) {
+    const std::string& td = target->declaring->descriptor;
+    const bool probe =
+        (td == "Lsun/security/provider/MD5;" &&
+         (target->name == "processBlock" || target->name == "engineUpdate")) ||
+        (td == "Ljava/util/LinkedList;" && target->name == "node");
+    if (probe) {
+      static std::atomic<int> caller_probe_logs{0};
+      if (caller_probe_logs.fetch_add(1, std::memory_order_relaxed) < 12) {
+        std::string chain;
+        Frame* f = &frame;
+        for (int i = 0; i < 10 && f != nullptr; i++) {
+          if (f->method != nullptr) {
+            if (!chain.empty()) chain += " <- ";
+            if (f->method->declaring != nullptr) chain += f->method->declaring->descriptor;
+            chain += "." + f->method->name;
+          }
+          f = f->caller;
+        }
+        __android_log_print(ANDROID_LOG_INFO, "DexVmCaller", "%s.%s <- %s", td.c_str(),
+                            target->name.c_str(), chain.c_str());
+      }
+    }
+  }
+  // TEMP DIAG：setRecyclerView 调用是否到达解释器 + 目标实现核对。
+  if (g_method_profile_on.load(std::memory_order_relaxed) && resolved->name == "setRecyclerView" &&
+      resolved->declaring != nullptr &&
+      resolved->declaring->descriptor.find("RecyclerView$LayoutManager") != std::string::npos) {
+    static std::atomic<int> srv_logs{0};
+    if (srv_logs.fetch_add(1, std::memory_order_relaxed) < 12) {
+      ObjHeader* recv = GetRef(frame, WordReg(cs, 0));
+      VClass* rk = recv != nullptr ? recv->klass : nullptr;
+      __android_log_print(
+          ANDROID_LOG_INFO, "DexVmRV",
+          "call setRecyclerView recv=%p rk=%s target=%s.%s code=%d native=%d", recv,
+          rk != nullptr ? rk->descriptor.c_str() : "?",
+          target->declaring != nullptr ? target->declaring->descriptor.c_str() : "?",
+          target->name.c_str(), target->HasCode() ? 1 : 0,
+          target->native_fn != nullptr ? 1 : 0);
+    }
+  }
+#endif
+  MethodProfileGuard profile_guard(target);
 
   // 参数铺陈（对照 DoCallCommon：receiver 首参槽、J/D 占两连续 vreg）。
   // 8 槽内栈缓冲（调用面绝大多数 ≤8 参）——避免每次方法调用一次 std::vector
@@ -1407,7 +1479,7 @@ bool DoPolymorphicCall(VMState& state, Frame& frame, const CallSite& cs, uint16_
       if (!CheckRef(state, frame, recv, WordReg(cs, arg0_word), "marker receiver")) return false;
       if (recv->klass != nullptr) {
         target = recv->klass->FindInterfaceImpl(resolved);
-        if (target == nullptr || !target->HasCode()) {
+        if (target == nullptr || !target->HasImplementation()) {
           if (VMethod* impl = FindImplDeep(recv->klass, *resolved)) target = impl;
         }
       }
@@ -1427,6 +1499,20 @@ bool DoPolymorphicCall(VMState& state, Frame& frame, const CallSite& cs, uint16_
 }
 
 }  // namespace
+
+// 采样控制面定义放在外层匿名命名空间之外，保证外部链接（jni 可引用）。
+void SetGuestMethodProfile(bool on) {
+  g_method_profile_on.store(on, std::memory_order_relaxed);
+  if (!on) g_current_method.store(nullptr, std::memory_order_relaxed);
+}
+
+bool GuestMethodProfileEnabled() {
+  return g_method_profile_on.load(std::memory_order_relaxed);
+}
+
+VMethod* CurrentGuestMethod() {
+  return g_current_method.load(std::memory_order_relaxed);
+}
 
 // 类定义完整性防御（interpreter.h；M4.3 SIGSEGV 根因防御，见声明注释）
 bool CheckClassDefinition(VMState& state, VClass* klass) {
@@ -1586,7 +1672,143 @@ bool InvokeMethod(VMState& state, VMethod* method, const Value* args, size_t arg
     return false;
   }
   if (StackGuardTripped(state)) return false;
+  // 深递归硬护栏：fiber 边界判定在 JNI 调用密集路径上可能晚于宿主 Java
+  // 线程栈上限（ART 直接 abort）。frame_stack 为多 GuestTask 共享，必须按
+  // owner 统计"本任务"深度（全局深度会把并发任务的活跃帧叠加，误报 SOE——
+  // 实测 re2j 正则编译链被误杀）。仅在高水位时做 O(n) 统计，常态零开销。
+  if (state.frame_stack.size() > 400) {
+    void* owner = state.frame_stack.back() != nullptr ? state.frame_stack.back()->owner
+                                                      : nullptr;
+    size_t task_depth = 0;
+    for (Frame* fr : state.frame_stack) {
+      if (fr != nullptr && fr->owner == owner) task_depth++;
+    }
+    if (task_depth > 2500) {
 #if defined(__ANDROID__)
+      static std::atomic<int> soe_logs{0};
+      if (soe_logs.fetch_add(1, std::memory_order_relaxed) < 4) {
+        __android_log_print(ANDROID_LOG_INFO, "DexVmStack",
+                            "SOE owner=%p task_depth=%zu total=%zu", owner, task_depth,
+                            state.frame_stack.size());
+        int printed = 0;
+        for (size_t i = state.frame_stack.size(); i > 0 && printed < 24; i--) {
+          Frame* fr = state.frame_stack[i - 1];
+          if (fr == nullptr || fr->owner != owner || fr->method == nullptr) continue;
+          __android_log_print(
+              ANDROID_LOG_INFO, "DexVmStack", "  soe#%d %s.%s@%u", printed,
+              fr->method->declaring != nullptr ? fr->method->declaring->descriptor.c_str()
+                                               : "?",
+              fr->method->name.c_str(), fr->dex_pc);
+          printed++;
+        }
+      }
+#endif
+      state.ThrowNew("Ljava/lang/StackOverflowError;", "guest task frame depth > 2500");
+      return false;
+    }
+  }
+#if defined(__ANDROID__)
+  // 深递归归因：栈深每 +100 打一次最近 12 帧（重复方法链 = 自递归根因）。
+  if (state.frame_stack.size() >= 200 && state.frame_stack.size() % 100 == 0) {
+    static std::atomic<int> deep_logs{0};
+    if (deep_logs.fetch_add(1, std::memory_order_relaxed) < 8) {
+      __android_log_print(ANDROID_LOG_INFO, "DexVmStack", "depth=%zu",
+                          state.frame_stack.size());
+      const size_t total = state.frame_stack.size();
+      for (size_t i = 0; i < 12 && i < total; i++) {
+        Frame* f = state.frame_stack[total - 1 - i];
+        if (f == nullptr || f->method == nullptr) continue;
+        __android_log_print(
+            ANDROID_LOG_INFO, "DexVmStack", "  #%zu %s.%s@%u", i,
+            f->method->declaring != nullptr ? f->method->declaring->descriptor.c_str() : "?",
+            f->method->name.c_str(), f->dex_pc);
+      }
+    }
+  }
+  // TEMP DIAG（RecyclerView measure NPE）：绑定/测量两侧实例核对
+  // （InvokeMethod 是 CallVirtual 顶层入口，DoCall 只覆盖 guest→guest）。
+  if (g_method_profile_on.load(std::memory_order_relaxed) && method->declaring != nullptr &&
+      arg_count >= 1) {
+    const std::string& td = method->declaring->descriptor;
+    auto ref_field = [](VObject* o, const char* name) -> ObjHeader* {
+      if (o == nullptr || o->klass == nullptr) return nullptr;
+      for (VClass* k = o->klass; k != nullptr; k = k->super_class) {
+        for (auto& f : k->instance_fields) {
+          if (f.name == name) {
+            ObjHeader* r = nullptr;
+            std::memcpy(&r, o->field_data() + f.offset, sizeof(r));
+            return r;
+          }
+        }
+      }
+      return nullptr;
+    };
+    if (method->name == "setLayoutManager" &&
+        td == "Landroidx/recyclerview/widget/RecyclerView;") {
+      static std::atomic<int> slm_logs{0};
+      if (slm_logs.fetch_add(1, std::memory_order_relaxed) < 20) {
+        VObject* lm =
+            arg_count >= 2 ? reinterpret_cast<VObject*>(args[1].ref) : nullptr;
+        int32_t pre_off = -1;
+        ObjHeader* pre = nullptr;
+        if (lm != nullptr && lm->klass != nullptr) {
+          for (VClass* k = lm->klass; k != nullptr && pre_off < 0; k = k->super_class) {
+            for (auto& f : k->instance_fields) {
+              if (f.name == "mRecyclerView") {
+                pre_off = static_cast<int32_t>(f.offset);
+                std::memcpy(&pre, lm->field_data() + f.offset, sizeof(pre));
+                break;
+              }
+            }
+          }
+        }
+        __android_log_print(ANDROID_LOG_INFO, "DexVmRV",
+                            "invoke setLayoutManager rv=%p lm=%p pre.mRecyclerView=%p off=%d",
+                            static_cast<void*>(reinterpret_cast<VObject*>(args[0].ref)),
+                            static_cast<void*>(lm), static_cast<void*>(pre), pre_off);
+      }
+    }
+    if (method->name == "setRecyclerView" &&
+        td == "Landroidx/recyclerview/widget/RecyclerView$LayoutManager;") {
+      static std::atomic<int> bind_logs{0};
+      if (bind_logs.fetch_add(1, std::memory_order_relaxed) < 10) {
+        __android_log_print(ANDROID_LOG_INFO, "DexVmRV",
+                            "invoke setRecyclerView self=%p arg=%p",
+                            static_cast<void*>(reinterpret_cast<VObject*>(args[0].ref)),
+                            arg_count >= 2 ? static_cast<void*>(reinterpret_cast<VObject*>(
+                                                 args[1].ref))
+                                           : nullptr);
+      }
+    }
+    if (method->name == "onMeasure" &&
+        td == "Landroidx/recyclerview/widget/RecyclerView;") {
+      static std::atomic<int> measure_logs{0};
+      if (measure_logs.fetch_add(1, std::memory_order_relaxed) < 50) {
+        VObject* self = reinterpret_cast<VObject*>(args[0].ref);
+        ObjHeader* layout = ref_field(self, "mLayout");
+        ObjHeader* back = layout != nullptr
+                              ? ref_field(reinterpret_cast<VObject*>(layout), "mRecyclerView")
+                              : nullptr;
+        int32_t mrv_off = -1;
+        if (layout != nullptr && layout->klass != nullptr) {
+          for (VClass* k = layout->klass; k != nullptr && mrv_off < 0; k = k->super_class) {
+            for (auto& f : k->instance_fields) {
+              if (f.name == "mRecyclerView") {
+                mrv_off = static_cast<int32_t>(f.offset);
+                break;
+              }
+            }
+          }
+        }
+        __android_log_print(ANDROID_LOG_INFO, "DexVmRV",
+                            "invoke onMeasure rv=%p mLayout=%p layout.mRecyclerView=%p off=%d",
+                            static_cast<void*>(self), static_cast<void*>(layout),
+                            static_cast<void*>(back), mrv_off);
+      }
+    }
+  }
+#endif
+#if defined(__ANDROID__) && DEXVM_CALL_DIAGNOSTICS
   // TEMP DIAG（Jackson creator 参数归因；事后移除）：POJOPropertiesCollector.
   // _addCreatorParam(Map, AnnotatedParameter) 每次调用打印参数所属成员。
   if (method->declaring != nullptr &&
@@ -1935,7 +2157,7 @@ bool InvokeMethod(VMState& state, VMethod* method, const Value* args, size_t arg
       ThrowUnsupportedOperationException(state, "JNI native hook not installed");
       return false;
     }
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) && DEXVM_CALL_DIAGNOSTICS
     // TEMP DIAG（H.d 解密结果归因；事后移除）。
     const bool is_hd = method->declaring != nullptr &&
                        method->declaring->descriptor == "Lcom/secneo/apkwrapper/H;" &&
@@ -2091,9 +2313,79 @@ bool InvokeMethod(VMState& state, VMethod* method, const Value* args, size_t arg
     ai += 1;
   }
 
-  if (!ExecuteFrame(state, frame)) return false;
+  if (!ExecuteFrame(state, frame)) {
+#if defined(__ANDROID__)
+    // TEMP DIAG：RecyclerView LM 子类 setRecyclerView 覆写执行失败归因。
+    if (method->name == "setRecyclerView" && method->declaring != nullptr &&
+        method->declaring->descriptor.find("LayoutManager") != std::string::npos) {
+      ObjHeader* ex = state.pending_exception;
+      std::string desc = ex != nullptr && ex->klass != nullptr ? ex->klass->descriptor : "?";
+      std::string msg;
+      if (ex != nullptr) {
+        for (VClass* k = ex->klass; k != nullptr && msg.empty(); k = k->super_class) {
+          for (auto& f : k->instance_fields) {
+            if (f.name == "detailMessage") {
+              ObjHeader* m = nullptr;
+              std::memcpy(&m, reinterpret_cast<VObject*>(ex)->field_data() + f.offset, sizeof(m));
+              if (m != nullptr) msg = static_cast<VString*>(m)->ToModifiedUtf8();
+              break;
+            }
+          }
+        }
+      }
+      __android_log_print(ANDROID_LOG_INFO, "DexVmRV", "setRecyclerView FAILED in %s: %s: %s",
+                          method->declaring->descriptor.c_str(), desc.c_str(), msg.c_str());
+    }
+#endif
+    return false;
+  }
   result->l = static_cast<int64_t>(GetP(frame, code->registers_size));
 #if defined(__ANDROID__)
+  // AOSP 不变量修复：RecyclerView.setLayoutManager 成功后，LayoutManager 必须
+  // 绑定回该 RecyclerView（mRecyclerView + mChildHelper）。实测 app 子类
+  // CatchLinearLayoutManager 覆写 setRecyclerView 时未调 super，导致
+  // LayoutManager.onMeasure 默认实现 NPE，整窗 measure 中止（首帧 bounds 全 0）。
+  if (method->name == "setLayoutManager" && method->declaring != nullptr &&
+      method->declaring->descriptor == "Landroidx/recyclerview/widget/RecyclerView;") {
+    auto find_field = [](VClass* cls, const char* name) -> VField* {
+      for (VClass* k = cls; k != nullptr; k = k->super_class) {
+        for (auto& f : k->instance_fields) {
+          if (f.name == name) return &f;
+        }
+      }
+      return nullptr;
+    };
+    auto read_ref = [](VObject* o, VField* f) -> ObjHeader* {
+      ObjHeader* r = nullptr;
+      if (o != nullptr && f != nullptr) std::memcpy(&r, o->field_data() + f->offset, sizeof(r));
+      return r;
+    };
+    VObject* rv = reinterpret_cast<VObject*>(args[0].ref);
+    ObjHeader* lm_h = rv != nullptr ? read_ref(rv, find_field(rv->klass, "mLayout")) : nullptr;
+    if (rv != nullptr && lm_h != nullptr) {
+      VObject* lm = reinterpret_cast<VObject*>(lm_h);
+      VField* back_f = find_field(lm->klass, "mRecyclerView");
+      if (back_f != nullptr && read_ref(lm, back_f) == nullptr) {
+        std::memcpy(lm->field_data() + back_f->offset, &rv, sizeof(rv));
+        VField* src_ch = find_field(rv->klass, "mChildHelper");
+        VField* dst_ch = find_field(lm->klass, "mChildHelper");
+        if (src_ch != nullptr && dst_ch != nullptr) {
+          ObjHeader* helper = read_ref(rv, src_ch);
+          if (helper != nullptr) {
+            std::memcpy(lm->field_data() + dst_ch->offset, &helper, sizeof(helper));
+          }
+        }
+        static std::atomic<int> bind_fixups{0};
+        if (bind_fixups.fetch_add(1, std::memory_order_relaxed) < 10) {
+          __android_log_print(ANDROID_LOG_INFO, "DexVmRV",
+                              "rebind LayoutManager %s -> RecyclerView %p",
+                              lm->klass != nullptr ? lm->klass->descriptor.c_str() : "?", rv);
+        }
+      }
+    }
+  }
+#endif
+#if defined(__ANDROID__) && DEXVM_CALL_DIAGNOSTICS
   // TEMP DIAG（ServiceManifest 查询路径归因；事后移除）。
   if (method->declaring != nullptr &&
       method->declaring->descriptor == "Lcom/zhihu/android/module/b1;" &&
@@ -2877,7 +3169,7 @@ bool ExecuteFrame(VMState& state, Frame& frame) {
             // 槽来源注记：declaring/name/type/@offset + receiver（死对象槽的
             // 直接证据面——reclaimed 形态 + 字段坐标即根因坐标）。
             ObjHeader* o = reinterpret_cast<ObjHeader*>(static_cast<uintptr_t>(bits));
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) && DEXVM_CALL_DIAGNOSTICS
             // TEMP DIAG: Jackson 反序列化注解内省器空值归因（事后移除）。
             if (f->declaring != nullptr &&
                 ((f->name == "c" &&
@@ -2901,6 +3193,38 @@ bool ExecuteFrame(VMState& state, Frame& frame) {
           }
           SetP(frame, a4, bits);
         } else {
+#if defined(__ANDROID__)
+          // TEMP DIAG（RecyclerView measure 断点归因）：LayoutManager.mRecyclerView
+          // 的绑定轨迹（setLayoutManager 是否写入/是否被置 null）。
+          if (n == Narrow::kRef && f->declaring != nullptr && f->name == "mLayout" &&
+              f->declaring->descriptor == "Landroidx/recyclerview/widget/RecyclerView;") {
+            static std::atomic<int> rv_layout_logs{0};
+            if (rv_layout_logs.fetch_add(1, std::memory_order_relaxed) < 20) {
+              __android_log_print(ANDROID_LOG_INFO, "DexVmRV",
+                                  "iput mLayout rv=%p val=0x%llx from %s.%s",
+                                  static_cast<void*>(reinterpret_cast<VObject*>(obj)),
+                                  static_cast<unsigned long long>(GetP(frame, a4)),
+                                  method->declaring != nullptr
+                                      ? method->declaring->descriptor.c_str()
+                                      : "?",
+                                  method->name.c_str());
+            }
+          }
+          if (n == Narrow::kRef && f->declaring != nullptr && f->name == "mRecyclerView" &&
+              f->declaring->descriptor.find("RecyclerView$LayoutManager") != std::string::npos) {
+            static std::atomic<int> rv_bind_logs{0};
+            if (rv_bind_logs.fetch_add(1, std::memory_order_relaxed) < 20) {
+              __android_log_print(ANDROID_LOG_INFO, "DexVmRV",
+                                  "iput mRecyclerView recv=%p val=0x%llx off=%u from %s.%s",
+                                  static_cast<void*>(reinterpret_cast<VObject*>(obj)),
+                                  static_cast<unsigned long long>(GetP(frame, a4)), f->offset,
+                                  method->declaring != nullptr
+                                      ? method->declaring->descriptor.c_str()
+                                      : "?",
+                                  method->name.c_str());
+            }
+          }
+#endif
           StoreSlot(slot_ptr, NarrowWrite(n, GetP(frame, a4)));
         }
         break;
@@ -2973,7 +3297,7 @@ bool ExecuteFrame(VMState& state, Frame& frame) {
         }
         if (is_get) {
           uint64_t bits = NarrowRead(n, static_cast<uint64_t>(slot.l));
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) && DEXVM_CALL_DIAGNOSTICS
           // TEMP DIAG: ObjectMapper 静态默认值（clinit 执行面；事后移除）。
           if (n == Narrow::kRef && f->declaring != nullptr &&
               f->declaring->descriptor == "Lcom/fasterxml/jackson/databind/ObjectMapper;" &&

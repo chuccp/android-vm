@@ -60,6 +60,9 @@ add_library(dexvm_runtime STATIC
   core/notification_bridge.cc
   core/framework_notification.cc
   core/framework_builtins.cc
+  core/framework_digest.cc
+  core/framework_collections.cc
+  core/framework_font.cc
   core/framework_fragment.cc
   core/framework_inflate.cc
   core/framework_media.cc

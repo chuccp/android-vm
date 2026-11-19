@@ -1,6 +1,7 @@
 // ClassLinker：Find/Define/Link/Initialize（语义对照 class_linker.cc，docs 03 章 11.x）
 #include "core/class_linker.h"
 
+#include <atomic>
 #include <mutex>
 #include <set>
 
@@ -27,6 +28,34 @@ bool FirstFindMiss(const std::string& desc) {
 #define CLINIT_LOG(...) \
   do {               \
   } while (0)
+#endif
+
+#include <chrono>
+
+#if defined(__ANDROID__)
+namespace {
+// 启动期类加载耗时采样：只计 FindClass 顶层调用（定义级联/Java 回落递归
+// 归并到触发类），超过阈值打一行——定位 onCreate 中“类加载雪崩”的具体类。
+thread_local int g_find_class_depth = 0;
+struct FindClassTimer {
+  const char* desc;
+  std::chrono::steady_clock::time_point t0;
+  bool top;
+  explicit FindClassTimer(const char* d)
+      : desc(d), t0(std::chrono::steady_clock::now()), top(g_find_class_depth++ == 0) {}
+  ~FindClassTimer() {
+    --g_find_class_depth;
+    if (!top) return;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - t0)
+                  .count();
+    if (ms >= 50) {
+      __android_log_print(ANDROID_LOG_INFO, "DexVmClassLoad", "%s %lld ms", desc,
+                          static_cast<long long>(ms));
+    }
+  }
+};
+}  // namespace
 #endif
 
 #include "core/builtins.h"
@@ -130,7 +159,14 @@ uint32_t FieldSlotSize(const std::string& desc) {
 
 }  // namespace
 
-ClassLinker::ClassLinker(mem::Heap* heap, InternTable* intern) : heap_(heap), intern_(intern) {
+namespace {
+std::atomic<uint64_t> g_next_linker_id{1};
+}  // namespace
+
+ClassLinker::ClassLinker(mem::Heap* heap, InternTable* intern)
+    : heap_(heap),
+      intern_(intern),
+      instance_id_(g_next_linker_id.fetch_add(1, std::memory_order_relaxed)) {
   // 加固器 DEX 再生成：登记表退役旧 DexFile 时清 DexCache + 退类索引（docs 03 章 10.2）
   loaders_.set_invalidator([this](dex::DexFile* dex) { RetireDexFile(dex); });
 }
@@ -385,6 +421,9 @@ VClass* ClassLinker::FindClass(VMState* state, VObject* loader, std::string_view
 
 VClass* ClassLinker::FindClassImpl(VMState* state, VObject* loader, std::string_view descriptor) {
   std::string desc(descriptor);
+#if defined(__ANDROID__)
+  FindClassTimer find_timer(desc.c_str());
+#endif
   // 1. ClassTable（含内置类）
   auto it = class_table_.find(desc);
   if (it != class_table_.end()) return it->second;

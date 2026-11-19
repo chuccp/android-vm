@@ -25,7 +25,25 @@ public class Display {
         if (outMetrics != null) {
             outMetrics.widthPixels = this.mWidth;
             outMetrics.heightPixels = this.mHeight;
+            // 与 framework_app.cc 的 guest DisplayMetrics 单例保持一致
+            // （540x960 / density 2.0 = 320dpi）。
+            outMetrics.density = 2.0f;
+            outMetrics.scaledDensity = 2.0f;
+            outMetrics.densityDpi = 320;
+            outMetrics.xdpi = 320.0f;
+            outMetrics.ydpi = 320.0f;
         }
+    }
+
+    public void getSize(android.graphics.Point outSize) {
+        if (outSize != null) {
+            outSize.x = this.mWidth;
+            outSize.y = this.mHeight;
+        }
+    }
+
+    public void getRealSize(android.graphics.Point outSize) {
+        getSize(outSize);
     }
 
     public void getRealMetrics(android.util.DisplayMetrics outMetrics) {

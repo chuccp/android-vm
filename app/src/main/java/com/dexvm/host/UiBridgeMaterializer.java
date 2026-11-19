@@ -1,6 +1,7 @@
 package com.dexvm.host;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
@@ -30,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -83,6 +85,11 @@ public final class UiBridgeMaterializer {
     private static final int PROP_VIDEO_PATH = 18;
     private static final int PROP_VIDEO_SEEK = 19;
     private static final int PROP_VIDEO_PLAYING = 20;
+    private static final int PROP_LAYOUT_GRAVITY = 21;
+    private static final int PROP_ORIENTATION = 22;
+    private static final int PROP_LAYOUT_MARGINS = 23;
+    private static final int PROP_LAYOUT_WEIGHT = 24;
+    private static final int PROP_LAYOUT_KIND = 25;
 
     private static final int TYPE_INT = 1;
     private static final int TYPE_FLOAT = 2;
@@ -150,6 +157,11 @@ public final class UiBridgeMaterializer {
     private final Context context;
     private final Map<Integer, View> views = new HashMap<>(); // object_id -> host View
     private final Map<Integer, Node> nodes = new HashMap<>();
+    // guest traversal 已产出有效绝对几何的节点；其余节点交给宿主 measure/layout
+    // （视图层已桥接：宿主真 View 自量，guest 只提供结构与字段态）。
+    private final Map<View, Boolean> absoluteViews = new IdentityHashMap<>();
+    private final Map<View, Integer> childGravity = new IdentityHashMap<>();
+    private final Map<View, Float> childWeight = new IdentityHashMap<>();
     private View root;
     private int appliedRevision = 0;
     private int dirtyCount = 0;
@@ -157,7 +169,12 @@ public final class UiBridgeMaterializer {
     private final Map<Integer, String> appliedVideoPath = new HashMap<>();
 
     public UiBridgeMaterializer(Context context) {
-        this.context = context;
+        // guest DisplayMetrics 固定 320dpi（framework_app.cc），宿主模拟器约
+        // 420dpi；不覆盖会让 Switch/Button/EditText 等宿主控件按宿主密度
+        // 自量，比 guest 布局大约 30%。物化控件统一用 guest 密度出画。
+        Configuration cfg = new Configuration(context.getResources().getConfiguration());
+        cfg.densityDpi = 320;
+        this.context = context.createConfigurationContext(cfg);
     }
 
     /** 目标 APK 路径（VideoView 的 android.resource:// 源从 APK 抽包真播放）。 */
@@ -218,6 +235,8 @@ public final class UiBridgeMaterializer {
         Log.i(TAG, "materialized rev=" + revision + (result.patch ? " patch" : " full")
                 + " nodes=" + result.nodeCount + " drawCmds=" + result.drawCommands
                 + " dirty=" + dirtyCount);
+        logLayoutStats();
+        if (kind == KIND_FULL) scheduleHostSizeDump();
         if (root instanceof TextView) {
             TextView tv = (TextView) root;
             CharSequence t = tv.getText();
@@ -229,6 +248,76 @@ public final class UiBridgeMaterializer {
             Log.i(TAG, "root debug: class=" + root.getClass().getName());
         }
         return result;
+    }
+
+    /** 宿主布局后的可见尺寸诊断（guest 类名 -> 实际 w/h；定位遮挡/零尺寸）。 */
+    private void scheduleHostSizeDump() {
+        final View r = root;
+        if (r == null) return;
+        r.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                StringBuilder sb = new StringBuilder();
+                int shown = 0;
+                for (Node n : nodes.values()) {
+                    View v = views.get(n.objectId);
+                    if (v == null || v.getVisibility() == View.GONE) continue;
+                    if (v.getWidth() <= 0 || v.getHeight() <= 0) continue;
+                    sb.append(" [").append(n.className).append(" ")
+                            .append(v.getWidth()).append("x").append(v.getHeight()).append("]");
+                    if (++shown >= 40) break;
+                }
+                Log.i(TAG, "host sizes=" + shown + sb);
+            }
+        }, 800);
+    }
+
+    /** 布局诊断：几何收敛度（bounds 有效 vs 交宿主布局的节点）。 */
+    private void logLayoutStats() {
+        int positive = 0;
+        int zero = 0;
+        StringBuilder sample = new StringBuilder();
+        for (Node n : nodes.values()) {
+            Prop b = n.prop(PROP_BOUNDS);
+            boolean ok = b != null
+                    && b.rect[2] - b.rect[0] > 0 && b.rect[3] - b.rect[1] > 0;
+            if (ok) {
+                positive++;
+            } else {
+                zero++;
+                if (zero <= 6) {
+                    Prop lp = n.prop(PROP_LAYOUT_PARAMS);
+                    Prop m = n.prop(PROP_MEASURED);
+                    sample.append(" [").append(n.className)
+                            .append(" lp=").append(lp != null ? lp.rect[0] + "x" + lp.rect[1] : "?")
+                            .append(" m=").append(m != null ? m.rect[0] + "x" + m.rect[1] : "?")
+                            .append("]");
+                }
+            }
+        }
+        StringBuilder key = new StringBuilder();
+        int keyCount = 0;
+        for (Node n : nodes.values()) {
+            String cls = n.className != null ? n.className : "";
+            if (keyCount >= 10) break;
+            if (!(cls.contains("BottomNav") || cls.contains("TabLayout")
+                    || cls.contains("Toolbar") || cls.contains("Search"))) {
+                continue;
+            }
+            Prop b = n.prop(PROP_BOUNDS);
+            Prop lp = n.prop(PROP_LAYOUT_PARAMS);
+            Prop m = n.prop(PROP_MEASURED);
+            Prop o = n.prop(PROP_ORIENTATION);
+            key.append(" [").append(cls)
+                    .append(" b=").append(b != null
+                            ? (b.rect[2] - b.rect[0]) + "x" + (b.rect[3] - b.rect[1]) : "?")
+                    .append(" lp=").append(lp != null ? lp.rect[0] + "x" + lp.rect[1] : "?")
+                    .append(" m=").append(m != null ? m.rect[0] + "x" + m.rect[1] : "?")
+                    .append(" o=").append(o != null ? o.asInt() : "?")
+                    .append("]");
+            keyCount++;
+        }
+        Log.i(TAG, "layout bounds+=" + positive + " bounds0=" + zero + sample + key);
     }
 
     // ---- 解析（小端，镜像 ui_bridge_protocol.cc 线格式）----
@@ -349,6 +438,9 @@ public final class UiBridgeMaterializer {
         }
         views.clear();
         nodes.clear();
+        absoluteViews.clear();
+        childGravity.clear();
+        childWeight.clear();
         appliedVideoPath.clear();
         root = null;
 
@@ -412,22 +504,32 @@ public final class UiBridgeMaterializer {
             v = new Switch(context);
         } else if (cls.endsWith("TextView")) {
             v = new TextView(context);
-        } else if (cls.endsWith("ImageView")) {
+        } else if (cls.endsWith("ImageView") || cls.contains("DraweeView")) {
+            // Fresco Drawee 族最终继承 ImageView；按图片叶节点物化。
             v = new ImageView(context);
         } else if (cls.contains("ProgressBar")) {
             v = new ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal);
         } else if (cls.endsWith("VideoView")) {
             v = new VideoView(context);
-        } else if (cls.endsWith("LinearLayout")) {
+        } else if (isLinearContainer(node, cls)) {
+            // AOSP 线性容器（含 ZHLinearLayout2 等派生类）：按 orientation
+            // 做行/列流式布局。
             v = new HostLinearLayout(context);
         } else {
-            // FrameLayout/RelativeLayout/ScrollView/ViewGroup/自定义容器：
-            // 通用容器承载，子节点可挂。
-            v = new HostViewGroup(context);
+            // FrameLayout / RelativeLayout / ScrollView / 自定义容器：
+            // 宿主 FrameLayout 语义（子 View 按 gravity/margin 叠放）。
+            v = new HostFrameLayout(context);
         }
         applyProps(v, node);
         wireClick(v, node.guestViewId);
         return v;
+    }
+
+    /** 容器是否为 LinearLayout 族：guest 父类链判定优先，类名兜底。 */
+    private static boolean isLinearContainer(Node node, String cls) {
+        Prop lk = node.prop(PROP_LAYOUT_KIND);
+        if (lk != null && lk.asInt() != 0) return lk.asInt() == 1;
+        return cls.contains("LinearLayout");
     }
 
     private void attach(View parent, View child, Node node, Node parentNode) {
@@ -447,16 +549,66 @@ public final class UiBridgeMaterializer {
             w = bounds.rect[2] - bounds.rect[0];
             h = bounds.rect[3] - bounds.rect[1];
         }
-        // guest bounds 是窗口绝对坐标；宿主物化容器按父子相对位摆放（父节点
-        // 自身已带绝对偏移），child_margin = child_abs - parent_abs。
-        Prop pbounds = parentNode != null ? parentNode.prop(PROP_BOUNDS) : null;
-        int originX = pbounds != null ? pbounds.rect[0] : 0;
-        int originY = pbounds != null ? pbounds.rect[1] : 0;
-        ViewGroup.MarginLayoutParams lp = new ViewGroup.MarginLayoutParams(
-                Math.max(w, 0), Math.max(h, 0));
-        lp.leftMargin = left - originX;
-        lp.topMargin = top - originY;
+        boolean absolute = w > 0 && h > 0;
+        // 文本节点被 guest 压成 <8px 高（自定义 Tab/搜索栏的中间态）时，绝对
+        // 几何会把文字裁成一条线；改交宿主按文本自量（wrap_content）。
+        if (absolute && h < 8 && child instanceof TextView) absolute = false;
+        ViewGroup.MarginLayoutParams lp;
+        if (absolute) {
+            // guest traversal 已产出绝对几何：沿用 guest 布局（父子相对位）。
+            Prop pbounds = parentNode != null ? parentNode.prop(PROP_BOUNDS) : null;
+            int originX = pbounds != null ? pbounds.rect[0] : 0;
+            int originY = pbounds != null ? pbounds.rect[1] : 0;
+            lp = new ViewGroup.MarginLayoutParams(w, h);
+            lp.leftMargin = left - originX;
+            lp.topMargin = top - originY;
+            absoluteViews.put(child, Boolean.TRUE);
+        } else {
+            // traversal 未收敛（节点几何为空）：布局归宿主。按 guest
+            // LayoutParams 的宽高意图（MATCH_PARENT / WRAP_CONTENT / 定值）
+            // 交宿主真 View 自行 measure；位置由宿主容器顺序摆放。
+            Prop glp = node.prop(PROP_LAYOUT_PARAMS);
+            Prop measured = node.prop(PROP_MEASURED);
+            Prop margins = node.prop(PROP_LAYOUT_MARGINS);
+            int gw = glp != null ? glp.rect[0] : 0;
+            int gh = glp != null ? glp.rect[1] : 0;
+            int mw = measured != null ? measured.rect[0] : 0;
+            int mh = measured != null ? measured.rect[1] : 0;
+            Prop weight = node.prop(PROP_LAYOUT_WEIGHT);
+            float wv = weight != null ? weight.f : 0f;
+            boolean weightedLinear = wv > 0 && parent instanceof HostLinearLayout;
+            if (weightedLinear) childWeight.put(child, wv);
+            else childWeight.remove(child);
+            // 0dp + weight 是"剩余空间分配"占位（AOSP LinearLayout）：尺寸 0
+            // 保留到宿主 measure 的权重轮再展开，不能当 WRAP_CONTENT。
+            int lw = weightedLinear && gw == 0 ? 0 : lpDimension(gw, mw);
+            int lh = weightedLinear && gh == 0 ? 0 : lpDimension(gh, mh);
+            lp = new ViewGroup.MarginLayoutParams(lw, lh);
+            if (margins != null) {
+                lp.leftMargin = Math.max(margins.rect[0], 0);
+                lp.topMargin = Math.max(margins.rect[1], 0);
+                lp.rightMargin = Math.max(margins.rect[2], 0);
+                lp.bottomMargin = Math.max(margins.rect[3], 0);
+            }
+            Prop grav = node.prop(PROP_LAYOUT_GRAVITY);
+            if (grav != null) childGravity.put(child, grav.asInt());
+            absoluteViews.remove(child);
+        }
         group.addView(child, lp);
+    }
+
+    /** guest LayoutParams 宽高 -> 宿主布局约束。
+     *  WRAP_CONTENT 有已测尺寸时优先用已测值（traversal 中断前的有效测量），
+     *  否则交宿主按内容自量。 */
+    private static int lpDimension(int v, int measured) {
+        // measured 不作为 fallback 尺寸：traversal 中断前的测量可能带着极端
+        // 约束值（实测 TextView mMeasuredWidth=49152），宿主直接采用会撑爆
+        // 布局。WRAP_CONTENT 交宿主按内容自量最稳。
+        if (v > 0) return v;
+        if (v == ViewGroup.LayoutParams.MATCH_PARENT) {
+            return ViewGroup.LayoutParams.MATCH_PARENT;
+        }
+        return ViewGroup.LayoutParams.WRAP_CONTENT;
     }
 
     private void applyProps(View v, Node node) {
@@ -465,11 +617,13 @@ public final class UiBridgeMaterializer {
             Prop text = node.prop(PROP_TEXT);
             if (text != null && text.s != null) tv.setText(text.s);
             Prop ts = node.prop(PROP_TEXT_SIZE);
-            if (ts != null) {
-                tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.max(ts.f, 1f));
+            if (ts != null && ts.f > 0) {
+                tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, ts.f);
             }
+            // 0 = guest 未显式设色（AOSP 落主题色）；不要用 0 覆盖宿主默认，
+            // 否则文字透明不可见。
             Prop tc = node.prop(PROP_TEXT_COLOR);
-            if (tc != null) tv.setTextColor(tc.asInt());
+            if (tc != null && tc.asInt() != 0) tv.setTextColor(tc.asInt());
             Prop gv = node.prop(PROP_GRAVITY);
             if (gv != null && gv.asInt() != 0) tv.setGravity(gv.asInt());
         }
@@ -499,6 +653,8 @@ public final class UiBridgeMaterializer {
         if (v instanceof HostLinearLayout) {
             Prop g = node.prop(PROP_GRAVITY);
             if (g != null) ((HostLinearLayout) v).gravityProp = g.asInt();
+            Prop o = node.prop(PROP_ORIENTATION);
+            if (o != null) ((HostLinearLayout) v).orientationProp = o.asInt();
         }
         Prop pad = node.prop(PROP_PADDING);
         if (pad != null) {
@@ -507,7 +663,12 @@ public final class UiBridgeMaterializer {
         Prop vis = node.prop(PROP_VISIBILITY);
         if (vis != null) v.setVisibility(vis.asInt());
         Prop alpha = node.prop(PROP_ALPHA);
-        if (alpha != null) v.setAlpha(Math.max(0f, Math.min(alpha.f, 1f)));
+        // alpha≈0 通常来自入场动画起始帧；宿主不跑 guest 动画器，直接采用 0
+        // 会让整块内容永久透明（实测首帧只剩窗口背景灰块）。基础 UI 口径：
+        // 0 视作"未开始动画"，按可见物化；非零沿用 guest 值。
+        if (alpha != null && alpha.f > 0.01f) {
+            v.setAlpha(Math.max(0f, Math.min(alpha.f, 1f)));
+        }
         Prop tr = node.prop(PROP_TRANSLATION);
         if (tr != null) {
             v.setTranslationX(tr.rect[0]);
@@ -645,19 +806,52 @@ public final class UiBridgeMaterializer {
                     if (op.guestViewId != -1) node.guestViewId = op.guestViewId;
                     applyProps(v, node);
                     wireClick(v, node.guestViewId);
-                    // bounds 变更 -> 重新布局位（父容器 lp 更新；绝对->父相对）
+                    // bounds 变更：有几何 -> guest 绝对布局；无几何 -> 宿主布局。
                     Prop bounds = node.prop(PROP_BOUNDS);
                     if (bounds != null && v.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
                         ViewGroup.MarginLayoutParams lp =
                                 (ViewGroup.MarginLayoutParams) v.getLayoutParams();
-                        Node parentNode = nodes.get(node.parentId);
-                        Prop pbounds = parentNode != null ? parentNode.prop(PROP_BOUNDS) : null;
-                        int originX = pbounds != null ? pbounds.rect[0] : 0;
-                        int originY = pbounds != null ? pbounds.rect[1] : 0;
-                        lp.leftMargin = bounds.rect[0] - originX;
-                        lp.topMargin = bounds.rect[1] - originY;
-                        lp.width = Math.max(bounds.rect[2] - bounds.rect[0], 0);
-                        lp.height = Math.max(bounds.rect[3] - bounds.rect[1], 0);
+                        int w = bounds.rect[2] - bounds.rect[0];
+                        int h = bounds.rect[3] - bounds.rect[1];
+                        if (w > 0 && h > 0) {
+                            Node parentNode = nodes.get(node.parentId);
+                            Prop pbounds = parentNode != null ? parentNode.prop(PROP_BOUNDS) : null;
+                            int originX = pbounds != null ? pbounds.rect[0] : 0;
+                            int originY = pbounds != null ? pbounds.rect[1] : 0;
+                            lp.leftMargin = bounds.rect[0] - originX;
+                            lp.topMargin = bounds.rect[1] - originY;
+                            lp.width = w;
+                            lp.height = h;
+                            absoluteViews.put(v, Boolean.TRUE);
+                        } else {
+                            Prop glp = node.prop(PROP_LAYOUT_PARAMS);
+                            Prop measured = node.prop(PROP_MEASURED);
+                            Prop margins = node.prop(PROP_LAYOUT_MARGINS);
+                            int gw = glp != null ? glp.rect[0] : 0;
+                            int gh = glp != null ? glp.rect[1] : 0;
+                            int mw = measured != null ? measured.rect[0] : 0;
+                            int mh = measured != null ? measured.rect[1] : 0;
+                            Prop weight = node.prop(PROP_LAYOUT_WEIGHT);
+                            float wv = weight != null ? weight.f : 0f;
+                            boolean weightedLinear = wv > 0
+                                    && v.getParent() instanceof HostLinearLayout;
+                            if (weightedLinear) childWeight.put(v, wv);
+                            else childWeight.remove(v);
+                            lp.width = weightedLinear && gw == 0 ? 0 : lpDimension(gw, mw);
+                            lp.height = weightedLinear && gh == 0 ? 0 : lpDimension(gh, mh);
+                            if (margins != null) {
+                                lp.leftMargin = Math.max(margins.rect[0], 0);
+                                lp.topMargin = Math.max(margins.rect[1], 0);
+                                lp.rightMargin = Math.max(margins.rect[2], 0);
+                                lp.bottomMargin = Math.max(margins.rect[3], 0);
+                            } else {
+                                lp.leftMargin = 0;
+                                lp.topMargin = 0;
+                            }
+                            Prop grav = node.prop(PROP_LAYOUT_GRAVITY);
+                            if (grav != null) childGravity.put(v, grav.asInt());
+                            absoluteViews.remove(v);
+                        }
                         v.setLayoutParams(lp);
                     }
                     break;
@@ -669,37 +863,184 @@ public final class UiBridgeMaterializer {
         }
     }
 
-    // ---- 物化容器（bounds 绝对摆放；不重跑宿主 measure 语义）----
+    // ---- 物化容器 ----
+    //
+    // 双轨布局：
+    // 1) guest traversal 已产出绝对 bounds 的节点：按 guest 几何精确摆放
+    //    （不做二次解释，保真度最高）；
+    // 2) bounds 缺失（traversal 因个别组件失败未收敛）：按 guest
+    //    LayoutParams（MATCH_PARENT / WRAP_CONTENT / 定值）构造宿主 MeasureSpec，
+    //    由宿主真 View 自己 measure/layout。这就是"视图层桥接后布局归宿主"。
 
-    /** 子 View 按 guest bounds 绝对 measure；返回内容包围盒 (w,h)。 */
-    private static int[] measureChildrenAbsolute(ViewGroup group) {
-        int w = 0;
-        int h = 0;
+    private static final int LAYOUT_FRAME = 0;
+    private static final int LAYOUT_VERTICAL = 1;
+    private static final int LAYOUT_HORIZONTAL = 2;
+
+    /** 子 View measure；返回内容包围盒 (w,h)。 */
+    private int[] measureChildrenHost(ViewGroup group, int ws, int hs, int mode) {
+        int parentW = View.MeasureSpec.getSize(ws);
+        int parentH = View.MeasureSpec.getSize(hs);
+        int contentW = Math.max(0, parentW - group.getPaddingLeft() - group.getPaddingRight());
+        int contentH = Math.max(0, parentH - group.getPaddingTop() - group.getPaddingBottom());
+        int maxW = 0;
+        int maxH = 0;
+        int totalW = 0;
+        int totalH = 0;
+        ArrayList<View> weighted = new ArrayList<>();
+        float totalWeight = 0f;
         for (int i = 0; i < group.getChildCount(); i++) {
             View child = group.getChildAt(i);
-            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) child.getLayoutParams();
-            int cw = Math.max(lp.width, 0);
-            int ch = Math.max(lp.height, 0);
-            child.measure(View.MeasureSpec.makeMeasureSpec(cw, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY));
-            w = Math.max(w, lp.leftMargin + child.getMeasuredWidth());
-            h = Math.max(h, lp.topMargin + child.getMeasuredHeight());
+            if (child.getVisibility() == View.GONE) continue;
+            ViewGroup.MarginLayoutParams lp =
+                    (ViewGroup.MarginLayoutParams) child.getLayoutParams();
+            int hMargin = lp.leftMargin + lp.rightMargin;
+            int vMargin = lp.topMargin + lp.bottomMargin;
+            boolean absolute = absoluteViews.containsKey(child)
+                    && lp.width > 0 && lp.height > 0;
+            int cw;
+            int ch;
+            if (absolute) {
+                child.measure(View.MeasureSpec.makeMeasureSpec(lp.width, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(lp.height, View.MeasureSpec.EXACTLY));
+                cw = lp.leftMargin + child.getMeasuredWidth() + lp.rightMargin;
+                ch = lp.topMargin + child.getMeasuredHeight() + lp.bottomMargin;
+                maxW = Math.max(maxW, cw);
+                maxH = Math.max(maxH, ch);
+                if (mode == LAYOUT_VERTICAL) totalH = Math.max(totalH, ch);
+                if (mode == LAYOUT_HORIZONTAL) totalW = Math.max(totalW, cw);
+            } else {
+                child.measure(makeChildSpec(contentW, ws, lp.width),
+                        makeChildSpec(contentH, hs, lp.height));
+                cw = child.getMeasuredWidth() + hMargin;
+                ch = child.getMeasuredHeight() + vMargin;
+                maxW = Math.max(maxW, cw);
+                maxH = Math.max(maxH, ch);
+                if (mode == LAYOUT_VERTICAL) totalH += ch;
+                else if (mode == LAYOUT_HORIZONTAL) totalW += cw;
+                Float weight = childWeight.get(child);
+                if (weight != null && weight > 0) {
+                    weighted.add(child);
+                    totalWeight += weight;
+                }
+            }
         }
-        return new int[] {w, h};
+        // AOSP LinearLayout 权重轮：0dp/weight 子项分配剩余空间。
+        if ((mode == LAYOUT_VERTICAL || mode == LAYOUT_HORIZONTAL) && totalWeight > 0) {
+            int available = mode == LAYOUT_VERTICAL ? contentH : contentW;
+            int used = mode == LAYOUT_VERTICAL ? totalH : totalW;
+            int extra = available - used;
+            if (extra > 0) {
+                for (View child : weighted) {
+                    Float f = childWeight.get(child);
+                    if (f == null || f <= 0) continue;
+                    int share = (int) (extra * f / totalWeight);
+                    int nw = child.getMeasuredWidth();
+                    int nh = child.getMeasuredHeight();
+                    if (mode == LAYOUT_VERTICAL) nh += share;
+                    else nw += share;
+                    child.measure(View.MeasureSpec.makeMeasureSpec(nw, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(nh, View.MeasureSpec.EXACTLY));
+                }
+                if (mode == LAYOUT_VERTICAL) totalH = available;
+                else totalW = available;
+            }
+        }
+        int extW = mode == LAYOUT_HORIZONTAL ? totalW : maxW;
+        int extH = mode == LAYOUT_VERTICAL ? totalH : maxH;
+        return new int[] {
+                Math.max(extW + group.getPaddingLeft() + group.getPaddingRight(), 0),
+                Math.max(extH + group.getPaddingTop() + group.getPaddingBottom(), 0)};
     }
 
-    private static void layoutChildrenAbsolute(ViewGroup group) {
+    /** 宿主 measure 语义：定值 -> EXACTLY；MATCH_PARENT/WRAP_CONTENT 按父 spec。 */
+    private static int makeChildSpec(int contentSize, int parentSpec, int childDimension) {
+        int parentMode = View.MeasureSpec.getMode(parentSpec);
+        if (childDimension >= 0) {
+            int dim = childDimension;
+            // guest LP 解析异常值兜底（实测某分隔 View layout_width 落成
+            // 49152px，会把同一行后续 tab 全部推到屏外）；只夹极端值，
+            // 正常固定尺寸/滚动内容不受影响。
+            if (dim > 16384 && contentSize > 0) dim = contentSize;
+            return View.MeasureSpec.makeMeasureSpec(dim, View.MeasureSpec.EXACTLY);
+        }
+        if (childDimension == ViewGroup.LayoutParams.MATCH_PARENT) {
+            return View.MeasureSpec.makeMeasureSpec(contentSize,
+                    parentMode == View.MeasureSpec.UNSPECIFIED
+                            ? View.MeasureSpec.UNSPECIFIED : View.MeasureSpec.EXACTLY);
+        }
+        return View.MeasureSpec.makeMeasureSpec(contentSize,
+                parentMode == View.MeasureSpec.UNSPECIFIED
+                        ? View.MeasureSpec.UNSPECIFIED : View.MeasureSpec.AT_MOST);
+    }
+
+    /** 宿主布局：绝对几何按 guest 位置；无几何节点按容器语义摆放。 */
+    private void layoutChildrenHost(ViewGroup group, int mode, int gravityProp) {
+        int groupWidth = group.getWidth();
+        int groupHeight = group.getHeight();
+        int contentW = Math.max(0,
+                groupWidth - group.getPaddingLeft() - group.getPaddingRight());
+        int contentH = Math.max(0,
+                groupHeight - group.getPaddingTop() - group.getPaddingBottom());
+        int x = group.getPaddingLeft();
+        int y = group.getPaddingTop();
         for (int i = 0; i < group.getChildCount(); i++) {
             View child = group.getChildAt(i);
-            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) child.getLayoutParams();
-            int l = lp.leftMargin;
-            int t = lp.topMargin;
-            child.layout(l, t, l + child.getMeasuredWidth(), t + child.getMeasuredHeight());
+            if (child.getVisibility() == View.GONE) continue;
+            ViewGroup.MarginLayoutParams lp =
+                    (ViewGroup.MarginLayoutParams) child.getLayoutParams();
+            int cw = child.getMeasuredWidth();
+            int ch = child.getMeasuredHeight();
+            int left;
+            int top;
+            boolean absolute = absoluteViews.containsKey(child)
+                    && lp.width > 0 && lp.height > 0;
+            if (absolute) {
+                left = lp.leftMargin;
+                top = lp.topMargin;
+                x = Math.max(x, left + cw + lp.rightMargin);
+                y = Math.max(y, top + ch + lp.bottomMargin);
+            } else if (mode == LAYOUT_VERTICAL) {
+                left = group.getPaddingLeft() + lp.leftMargin;
+                if ((gravityProp & 0x1) != 0) {  // Gravity.CENTER_HORIZONTAL
+                    left = Math.max(group.getPaddingLeft(),
+                            group.getPaddingLeft() + (contentW - cw) / 2);
+                }
+                top = y + lp.topMargin;
+                y = top + ch + lp.bottomMargin;
+            } else if (mode == LAYOUT_HORIZONTAL) {
+                top = group.getPaddingTop() + lp.topMargin;
+                if ((gravityProp & 0x10) != 0) {  // Gravity.CENTER_VERTICAL
+                    top = Math.max(group.getPaddingTop(),
+                            group.getPaddingTop() + (contentH - ch) / 2);
+                }
+                left = x + lp.leftMargin;
+                x = left + cw + lp.rightMargin;
+            } else {
+                // Frame 语义：按 LayoutParams.gravity 在内容区定位。
+                Integer gv = childGravity.get(child);
+                int g = gv != null ? gv : 0;
+                left = group.getPaddingLeft() + lp.leftMargin;
+                top = group.getPaddingTop() + lp.topMargin;
+                int hg = g & 0x7;
+                if (hg == 5) {  // Gravity.RIGHT
+                    left = groupWidth - group.getPaddingRight() - lp.rightMargin - cw;
+                } else if (hg == 1) {  // Gravity.CENTER_HORIZONTAL
+                    left = group.getPaddingLeft() + (contentW - cw) / 2;
+                }
+                int vg = g & 0x70;
+                if (vg == 0x50) {  // Gravity.BOTTOM
+                    top = groupHeight - group.getPaddingBottom() - lp.bottomMargin - ch;
+                } else if (vg == 0x10) {  // Gravity.CENTER_VERTICAL
+                    top = group.getPaddingTop() + (contentH - ch) / 2;
+                }
+            }
+            child.layout(left, top, left + cw, top + ch);
         }
     }
 
-    static final class HostLinearLayout extends LinearLayout {
+    final class HostLinearLayout extends LinearLayout {
         int gravityProp = 0;
+        int orientationProp = 1;  // LinearLayout.VERTICAL
 
         HostLinearLayout(Context c) {
             super(c);
@@ -708,50 +1049,38 @@ public final class UiBridgeMaterializer {
 
         @Override
         protected void onMeasure(int ws, int hs) {
-            int[] ext = measureChildrenAbsolute(this);
+            int mode = orientationProp == 1 ? LAYOUT_VERTICAL : LAYOUT_HORIZONTAL;
+            int[] ext = measureChildrenHost(this, ws, hs, mode);
             setMeasuredDimension(View.resolveSize(ext[0], ws), View.resolveSize(ext[1], hs));
         }
 
         @Override
         protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            int groupWidth = r - l;
-            for (int i = 0; i < getChildCount(); i++) {
-                View child = getChildAt(i);
-                ViewGroup.MarginLayoutParams lp =
-                        (ViewGroup.MarginLayoutParams) child.getLayoutParams();
-                int cw = child.getMeasuredWidth();
-                int ch = child.getMeasuredHeight();
-                int left = lp.leftMargin;
-                if ((gravityProp & 0x1) != 0) {  // Gravity.CENTER_HORIZONTAL
-                    // 宿主控件自量后可能窄于布局宽（VideoView 按视频宽高比自校）：
-                    // 按 AOSP LinearLayout 水平居中语义落位。
-                    left = Math.max(0, (groupWidth - cw) / 2);
-                }
-                int top = lp.topMargin;
-                child.layout(left, top, left + cw, top + ch);
-            }
+            int mode = orientationProp == 1 ? LAYOUT_VERTICAL : LAYOUT_HORIZONTAL;
+            layoutChildrenHost(this, mode, gravityProp);
         }
     }
 
-    static final class HostViewGroup extends ViewGroup {
-        HostViewGroup(Context c) {
+    final class HostFrameLayout extends ViewGroup {
+        HostFrameLayout(Context c) {
             super(c);
         }
 
         @Override
         protected ViewGroup.LayoutParams generateDefaultLayoutParams() {
-            return new ViewGroup.MarginLayoutParams(0, 0);
+            return new ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
         }
 
         @Override
         protected void onMeasure(int ws, int hs) {
-            int[] ext = measureChildrenAbsolute(this);
+            int[] ext = measureChildrenHost(this, ws, hs, LAYOUT_FRAME);
             setMeasuredDimension(View.resolveSize(ext[0], ws), View.resolveSize(ext[1], hs));
         }
 
         @Override
         protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            layoutChildrenAbsolute(this);
+            layoutChildrenHost(this, LAYOUT_FRAME, 0);
         }
     }
 

@@ -1,7 +1,9 @@
 // 解释器（语义对照 third_party/art/runtime/interpreter/interpreter_common.cc）
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -10,12 +12,62 @@
 
 namespace dexvm::runtime {
 
+// 帧寄存器存储：绝大多数方法 ≤31 个 vreg（64 个 32-bit payload 槽），
+// 内联承接、不再每次调用 malloc/free（ART 用连续托管栈，这里做等价最小面）。
+// 超过内联容量的方法才走堆（大方法体少，启动期占比低）。
+class FrameRegs {
+ public:
+  FrameRegs() = default;
+  FrameRegs(const FrameRegs&) = delete;
+  FrameRegs& operator=(const FrameRegs&) = delete;
+  ~FrameRegs() {
+    if (data_ != InlineData()) ::operator delete(data_);
+  }
+
+  void assign(size_t n, uint32_t v) {
+    Ensure(n);
+    for (size_t i = 0; i < n; i++) data_[i] = v;
+    size_ = n;
+  }
+
+  void resize(size_t n, uint32_t v) {
+    Ensure(n);
+    for (size_t i = size_; i < n; i++) data_[i] = v;
+    size_ = n;
+  }
+
+  size_t size() const { return size_; }
+  uint32_t& operator[](size_t i) { return data_[i]; }
+  const uint32_t& operator[](size_t i) const { return data_[i]; }
+  uint32_t* data() { return data_; }
+  const uint32_t* data() const { return data_; }
+
+ private:
+  static constexpr size_t kInlineSlots = 64;
+
+  uint32_t* InlineData() { return reinterpret_cast<uint32_t*>(inline_storage_); }
+
+  void Ensure(size_t n) {
+    if (n <= cap_) return;
+    uint32_t* p = static_cast<uint32_t*>(::operator new(n * sizeof(uint32_t)));
+    if (size_ != 0) std::memcpy(p, data_, size_ * sizeof(uint32_t));
+    if (data_ != InlineData()) ::operator delete(data_);
+    data_ = p;
+    cap_ = n;
+  }
+
+  alignas(uint32_t) unsigned char inline_storage_[kInlineSlots * sizeof(uint32_t)];
+  uint32_t* data_ = InlineData();
+  size_t size_ = 0;
+  size_t cap_ = kInlineSlots;
+};
+
 // 解释器帧：vreg 用 32-bit 槽（wide 占两槽）
 struct Frame {
   VMethod* method = nullptr;
   const uint16_t* insns = nullptr;
   uint32_t dex_pc = 0;  // code-unit 偏移
-  std::vector<uint32_t> regs;
+  FrameRegs regs;
   Frame* caller = nullptr;
   // 所属 GuestTask（frame_stack 多任务共享；回溯按 owner 过滤，防止把
   // 其他协程的帧串进异常栈；不跟 caller 链——caller 可能跨 task/已回收）。
@@ -42,6 +94,11 @@ struct VMState {
 // 执行一个方法（已选好实现）；args 按 jvalue 语义（wide 一个 Value 装 64 位）
 // 成功返回 true 且 *result 填返回值；失败（抛异常）返回 false，
 // 异常挂在 state.pending_exception。
+// 启动期慢方法采样（设备诊断）：记录当前执行的 guest 方法。
+void SetGuestMethodProfile(bool on);
+bool GuestMethodProfileEnabled();
+VMethod* CurrentGuestMethod();
+
 bool InvokeMethod(VMState& state, VMethod* method, const Value* args, size_t arg_count,
                   Value* result);
 

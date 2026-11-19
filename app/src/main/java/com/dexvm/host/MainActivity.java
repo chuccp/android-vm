@@ -30,6 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -111,6 +112,12 @@ public class MainActivity extends Activity {
             TlsBridge.start();
         } catch (Throwable t) {
             Log.e(TAG_OPEN, "TlsBridge start failed", t);
+        }
+        // 宿主字体 worker（guest 字体桥；fiber 不能直接调宿主 JNI）。
+        try {
+            FontBridge.start();
+        } catch (Throwable t) {
+            Log.e(TAG_OPEN, "FontBridge start failed", t);
         }
         buildUi();
         refreshApps();
@@ -1050,13 +1057,36 @@ public class MainActivity extends Activity {
 
     private String copyAsset(String name) throws Exception {
         File out = new File(getFilesDir(), name);
-        // 恒覆盖：adb install -r 保留 files/，跳过已存在会让考卷静默跑旧 dex/apk
+        File stamp = new File(getFilesDir(), name + ".stamp");
+        // 版本戳 = 宿主包 lastUpdateTime：adb install -r 保留 files/，但更新包会
+        // 改变该值 -> 重新落位；未更新则直接复用，避免每次打开重拷 4.8MB。
+        long pkgStamp = -1;
+        try {
+            pkgStamp = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
+        } catch (Throwable ignored) {
+        }
+        if (pkgStamp > 0 && out.isFile() && out.length() > 0 && stamp.isFile()) {
+            try (InputStream in = new FileInputStream(stamp)) {
+                byte[] raw = new byte[64];
+                int n = in.read(raw);
+                if (n > 0 && Long.parseLong(new String(raw, 0, n).trim()) == pkgStamp) {
+                    return out.getAbsolutePath();
+                }
+            } catch (Throwable ignored) {
+            }
+        }
         try (InputStream in = getAssets().open(name);
              OutputStream os = new FileOutputStream(out)) {
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) > 0) {
                 os.write(buf, 0, n);
+            }
+        }
+        if (pkgStamp > 0) {
+            try (OutputStream so = new FileOutputStream(stamp)) {
+                so.write(Long.toString(pkgStamp).getBytes("US-ASCII"));
+            } catch (Throwable ignored) {
             }
         }
         return out.getAbsolutePath();

@@ -4,6 +4,7 @@
 
 #include <dlfcn.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -404,18 +405,26 @@ bool InvokeNativeTrampoline(JNIEnvExt* env, VMethod* m, ObjHeader* self, const V
     }
     return false;
   }
-  // PAG（libpag）原生面暂时关闭：其渲染依赖真实 Surface/GL（Surface 桥未落地
-  // 前传空面会在 libpag 内部 mutex 踩垃圾指针 SIGSEGV，08:42 实证）。按
-  // UnsatisfiedLinkError 可捕获语义失败，动画不播但不崩 VM；Surface/GL 桥
-  // 落地后移除本拦截。
+  // PAG（libpag）原生面暂时不执行：其渲染依赖真实 Surface/GL（Surface 桥
+  // 未落地前传空面会在 libpag 内部 mutex 踩垃圾指针 SIGSEGV，08:42 实证）。
+  // 但直接抛 UnsatisfiedLinkError 会让 PAGFile.<clinit>/PAGFile.LoadFromAssets
+  // 打断 RecyclerView/Fragment 的整条 measure（基础框架 UI 永远不收敛）。
+  // 因此改为零值兼容桩：返回默认 0/null/false，PAGView/PAGPlayer 能构造、
+  // PAGFile.LoadFromAssets 得到空文件（动画不播）；宿主 Surface/GL 桥落地后
+  // 用真实桥替换本桩。
   if (m->declaring != nullptr &&
       m->declaring->descriptor.rfind("Lorg/libpag/", 0) == 0) {
-    if (env->vmstate != nullptr) {
-      env->vmstate->ThrowNew("Ljava/lang/UnsatisfiedLinkError;",
-                             "PAG native disabled (Surface/GL bridge pending): " +
-                                 m->declaring->descriptor + "." + m->name);
+    static std::atomic<int> pag_stub_logs{0};
+#if defined(__ANDROID__)
+    if (pag_stub_logs.fetch_add(1) < 30) {
+      __android_log_print(ANDROID_LOG_INFO, "DexVmJni",
+                          "PAG stub -> %s.%s", m->declaring->descriptor.c_str(),
+                          m->name.c_str());
     }
-    return false;
+#else
+    pag_stub_logs.fetch_add(1);
+#endif
+    return true;
   }
   if (m->jni_native_fn == nullptr && env->vm != nullptr) {
     // @CriticalNative 延迟项兜底：类已初始化则此处生效

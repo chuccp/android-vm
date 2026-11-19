@@ -27,6 +27,14 @@ public class ObjectAnimator extends ValueAnimator {
         return a;
     }
 
+    // AOSP 协变返回面：ObjectAnimator.setDuration 返回 ObjectAnimator
+    // （dex 方法签名含返回类型，缺覆写 = NoSuchMethodError）。
+    @Override
+    public ObjectAnimator setDuration(long duration) {
+        super.setDuration(duration);
+        return this;
+    }
+
     public void setPropertyName(String propertyName) {
     }
 

@@ -97,6 +97,13 @@ struct VMethod {
   void* jni_native_fn = nullptr;  // RegisterNatives 原始 JNI 函数（经 trampoline 派发）
 
   bool HasCode() const { return code != nullptr; }
+  // 可执行实现面：dex code / intrinsic / JNI native 三者之一。
+  // 接口方法解析（FindImplDeep）必须按此判定——内建 intrinsic（View.isEnabled
+  // 等）code 为空，但确实是继承来的实现；只看 HasCode 会误选接口抽象声明，
+  // 运行期抛 AbstractMethodError。
+  bool HasImplementation() const {
+    return code != nullptr || native_fn != nullptr || jni_native_fn != nullptr;
+  }
   bool IsStatic() const;
   bool IsDirect() const;  // static/private/constructor
 };

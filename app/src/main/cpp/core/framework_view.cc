@@ -920,6 +920,31 @@ Value ViewGetBottom(VMState& state, VObject* self, const Value* args, size_t n, 
   return r;
 }
 
+// AOSP getBackground 非 null 契约：material 组件（SwipeRefreshLayout 的
+// CircleImageView）会直接 getBackground().setAlpha(...)；本 VM 的背景
+// drawable 尚未做对象字段面，返回一个临时 ColorDrawable 占位，避免 NPE。
+Value ViewGetBackground(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)self;
+  (void)args;
+  (void)n;
+  *ok = true;
+  Value r{};
+  if (state.linker == nullptr) return r;
+  VClass* k = state.linker->FindClass("Landroid/graphics/drawable/ColorDrawable;");
+  if (k == nullptr) return r;
+  r.ref = state.linker->AllocObject(k);
+  return r;
+}
+
+Value ViewOnScrollChanged(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state;
+  (void)self;
+  (void)args;
+  (void)n;
+  *ok = true;
+  return Value{};
+}
+
 Value ViewGetVisibility(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   (void)state;
   (void)args;
@@ -1467,15 +1492,21 @@ Value VGGetChildMeasureSpec(VMState& state, VObject* self, const Value* args, si
   int32_t spec_mode = spec & ~0x3fffffff;
   int32_t spec_size = spec & 0x3fffffff;
   int32_t size = spec_size - padding;
+  if (size < 0) size = 0;
   if (child_dim >= 0) {
     r.i = (child_dim & 0x3fffffff) | 0x40000000;  // EXACTLY
     return r;
   }
-  if (size >= 0) {
-    r.i = size | static_cast<int32_t>(0x80000000u);  // AT_MOST
-  } else {
+  if (spec_mode == 0) {
+    // AOSP：父 UNSPECIFIED 时子 MATCH_PARENT/WRAP_CONTENT 均为 UNSPECIFIED(0)
     r.i = 0;
+    return r;
   }
+  if (child_dim == -1) {
+    r.i = size | 0x40000000;  // MATCH_PARENT -> EXACTLY(剩余)
+    return r;
+  }
+  r.i = size | static_cast<int32_t>(0x80000000u);  // WRAP_CONTENT -> AT_MOST(剩余)
   return r;
 }
 

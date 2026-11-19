@@ -62,6 +62,28 @@ public class AccessibilityNodeInfo implements Parcelable {
                 new AccessibilityAction(0x00000040, null);
         public static final AccessibilityAction ACTION_CLEAR_ACCESSIBILITY_FOCUS =
                 new AccessibilityAction(0x00000080, null);
+        public static final AccessibilityAction ACTION_NEXT_AT_MOVEMENT_GRANULARITY =
+                new AccessibilityAction(0x00000100, null);
+        public static final AccessibilityAction ACTION_PREVIOUS_AT_MOVEMENT_GRANULARITY =
+                new AccessibilityAction(0x00000200, null);
+        public static final AccessibilityAction ACTION_NEXT_HTML_ELEMENT =
+                new AccessibilityAction(0x00000400, null);
+        public static final AccessibilityAction ACTION_PREVIOUS_HTML_ELEMENT =
+                new AccessibilityAction(0x00000800, null);
+        public static final AccessibilityAction ACTION_COPY =
+                new AccessibilityAction(0x00004000, null);
+        public static final AccessibilityAction ACTION_PASTE =
+                new AccessibilityAction(0x00008000, null);
+        public static final AccessibilityAction ACTION_CUT =
+                new AccessibilityAction(0x00010000, null);
+        public static final AccessibilityAction ACTION_SET_SELECTION =
+                new AccessibilityAction(0x00020000, null);
+        public static final AccessibilityAction ACTION_EXPAND =
+                new AccessibilityAction(0x00040000, null);
+        public static final AccessibilityAction ACTION_COLLAPSE =
+                new AccessibilityAction(0x00080000, null);
+        public static final AccessibilityAction ACTION_DISMISS =
+                new AccessibilityAction(0x00100000, null);
         public static final AccessibilityAction ACTION_SCROLL_FORWARD =
                 new AccessibilityAction(0x00001000, null);
         public static final AccessibilityAction ACTION_SCROLL_BACKWARD =
@@ -94,6 +116,28 @@ public class AccessibilityNodeInfo implements Parcelable {
                 new AccessibilityAction(0x01020046, null);
         public static final AccessibilityAction ACTION_IME_ENTER =
                 new AccessibilityAction(0x01020047, null);
+        public static final AccessibilityAction ACTION_PAGE_UP =
+                new AccessibilityAction(0x01020048, null);
+        public static final AccessibilityAction ACTION_PAGE_DOWN =
+                new AccessibilityAction(0x01020049, null);
+        public static final AccessibilityAction ACTION_PAGE_LEFT =
+                new AccessibilityAction(0x0102004a, null);
+        public static final AccessibilityAction ACTION_PAGE_RIGHT =
+                new AccessibilityAction(0x0102004b, null);
+        public static final AccessibilityAction ACTION_DRAG_START =
+                new AccessibilityAction(0x01020055, null);
+        public static final AccessibilityAction ACTION_DRAG_ENTER =
+                new AccessibilityAction(0x01020056, null);
+        public static final AccessibilityAction ACTION_DRAG_EXIT =
+                new AccessibilityAction(0x01020057, null);
+        public static final AccessibilityAction ACTION_DRAG_END =
+                new AccessibilityAction(0x01020058, null);
+        public static final AccessibilityAction ACTION_DRAG_CANCEL =
+                new AccessibilityAction(0x01020059, null);
+        public static final AccessibilityAction ACTION_SHOW_TEXT_SUGGESTIONS =
+                new AccessibilityAction(0x0102005a, null);
+        public static final AccessibilityAction ACTION_DRAG_DROP =
+                new AccessibilityAction(0x0102005b, null);
 
         public AccessibilityAction(int id, CharSequence label) {
             this.mId = id;

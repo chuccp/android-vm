@@ -133,6 +133,15 @@ Value CtxGetSystemService(VMState& state, VObject* self, const Value* args, size
     VObject* um = NewLibObject(state, "Landroid/app/UiModeManager;", {}, nullptr, 0, &um_ok);
     if (um == nullptr) state.ClearException();
     r.ref = reinterpret_cast<ObjHeader*>(um);
+  } else if (name == "window") {
+    // AOSP Context.WINDOW_SERVICE = "window"：lib WindowManagerImpl（恒非空
+    // Display 度量面）。缺此返回 null → 悬浮广告等视图构造 getDefaultDisplay NPE，
+    // 进而 ZHFloatAdFloatView 构造失败、BaseTabChildFragment.mRecyclerView 为空。
+    bool wm_ok = true;
+    VObject* wm = NewLibObject(state, "Landroid/view/WindowManagerImpl;", {}, nullptr, 0,
+                               &wm_ok);
+    if (wm == nullptr) state.ClearException();
+    r.ref = reinterpret_cast<ObjHeader*>(wm);
   } else if (name == "accessibility") {
     // AOSP Context.ACCESSIBILITY_SERVICE = "accessibility"：lib AccessibilityManager
     // 单例（状态恒关闭）。缺此返回 null → ViewCompat/AccessibilityDelegate 调用点
@@ -163,7 +172,14 @@ Value CtxGetSystemServiceClass(VMState& state, VObject* self, const Value* args,
   Value r{};
   if (n < 1 || args[0].ref == nullptr) return r;
   VClass* klass = reinterpret_cast<VClass*>(args[0].ref);
-  if (klass->descriptor == "Landroid/media/AudioManager;") {
+  if (klass->descriptor == "Landroid/view/WindowManager;" ||
+      klass->descriptor == "Landroid/view/WindowManagerImpl;") {
+    bool wm_ok = true;
+    VObject* wm = NewLibObject(state, "Landroid/view/WindowManagerImpl;", {}, nullptr, 0,
+                               &wm_ok);
+    if (wm == nullptr) state.ClearException();
+    r.ref = reinterpret_cast<ObjHeader*>(wm);
+  } else if (klass->descriptor == "Landroid/media/AudioManager;") {
     r.ref = reinterpret_cast<ObjHeader*>(AllocAudioManager(state));
   } else if (klass->descriptor == "Landroid/telephony/TelephonyManager;") {
     r.ref = reinterpret_cast<ObjHeader*>(AllocTelephonyManager(state));

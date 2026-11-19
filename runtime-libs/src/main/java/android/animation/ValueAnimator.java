@@ -14,6 +14,7 @@ public class ValueAnimator extends Animator {
     private float[] mValues;
     private Object mAnimatedValue;
     private long mDuration = 300;
+    private TimeInterpolator mInterpolator;
 
     public ValueAnimator() {
     }
@@ -66,6 +67,16 @@ public class ValueAnimator extends Animator {
         return this.mDuration;
     }
 
+    @Override
+    public void setInterpolator(TimeInterpolator value) {
+        this.mInterpolator = value;
+    }
+
+    @Override
+    public TimeInterpolator getInterpolator() {
+        return this.mInterpolator;
+    }
+
     public void setCurrentFraction(float fraction) {
     }
 
@@ -77,6 +88,10 @@ public class ValueAnimator extends Animator {
     }
 
     public void removeUpdateListener(AnimatorUpdateListener listener) {
+    }
+
+    /** AOSP 公开面：清空全部更新监听器。 */
+    public void removeAllUpdateListeners() {
     }
 
     public void setRepeatCount(int value) {

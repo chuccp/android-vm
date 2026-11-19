@@ -11,6 +11,10 @@
 #include <chrono>
 #include <cstring>
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
+
 #include "core/class_linker.h"
 #include "core/framework_builtins.h"
 #include "session/class_loader.h"
@@ -498,14 +502,17 @@ bool LifecycleDriver::Run(const LifecycleConfig& config) {
       ok_ = false;
       return false;
     }
-    // M4.3 消息泵（docs 14.10；阶段间出队已投递消息——postDelayed 虚拟时间
-    // 推进出队）。无消息 = 零记录零成本。dispatch 抛 guest 异常：记录
-    // messagePump 缺口（DexVmThrow/DexVmClinit 已有根因）但**不中止**——
-    // 真机语义是未捕获异常崩溃进程，本 VM 里这类异常多来自长尾 API 缺口
-    // （如百度地图 SDK 的 Bundle 面），不应阻断与首个画面无关的主流程。
+    // M4.3 消息泵（docs 14.10）：阶段间只派发**已到期**消息（realtime 语义，
+    // 与 session tick 一致）。旧实现用虚拟时间推进 postDelayed，启动期会把
+    // 应用的延迟初始化/网络重试任务提前连跑，activity.launch 被拖到 90s+；
+    // AOSP 主线程不会快进延迟消息，这里按真实时间出队，启动阶段只推进
+    // 立即任务，延迟任务留给首帧后的 session tick。
+    // dispatch 抛 guest 异常：记录 messagePump 缺口但**不中止**——真机语义是
+    // 未捕获异常崩溃进程，本 VM 里这类异常多来自长尾 API 缺口，不应阻断与
+    // 首个画面无关的主流程。
     std::string pump_err;
     auto pump_t0 = std::chrono::steady_clock::now();
-    if (!dexvm::runtime::PumpLooperQueues(state_, &pump_err)) {
+    if (!dexvm::runtime::PumpLooperQueuesRealtime(state_, &pump_err, nullptr)) {
       PhaseRecord prec;
       prec.name = "messagePump";
       prec.ok = false;
@@ -744,15 +751,29 @@ bool LifecycleDriver::Run(const LifecycleConfig& config) {
       const std::string tag = "activity.launch[" +
                               dexvm::session::DescriptorToDot(launch_cls) + "]";
       if (!phase(tag, [&](std::string* reason) {
+            auto step_t = std::chrono::steady_clock::now();
+            auto mark = [&](const char* step) {
+              auto now = std::chrono::steady_clock::now();
+              auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - step_t)
+                            .count();
+#if defined(__ANDROID__)
+              __android_log_print(ANDROID_LOG_INFO, "DexVmProgress",
+                                  "launch step %s %lld ms", step,
+                                  static_cast<long long>(ms));
+#endif
+              step_t = now;
+            };
             // 旧 Activity 退前台（AOSP onPause -> onStop）
             if (activity_ != nullptr) {
               CallVirtualOn(activity_, "onPause", {}, "V", nullptr, 0, nullptr);
               CallVirtualOn(activity_, "onStop", {}, "V", nullptr, 0, nullptr);
             }
+            mark("old.pause.stop");
             if (!Instantiate(launch_cls, &next_activity)) {
               *reason = error_;
               return false;
             }
+            mark("instantiate");
             VField* intent_f = FindInstanceField(next_activity->klass, "mIntent");
             if (intent_f != nullptr) {
               SetRefField(next_activity, intent_f->offset, launch_intent);
@@ -769,21 +790,36 @@ bool LifecycleDriver::Run(const LifecycleConfig& config) {
               *reason = error_;
               return false;
             }
+            mark("attach");
             Value bundle_arg[1] = {};
             if (!CallVirtualOn(next_activity, "onCreate", {"Landroid/os/Bundle;"}, "V",
                                bundle_arg, 1, nullptr)) {
               *reason = error_;
               return false;
             }
+            mark("onCreate");
             Value post_create_arg[1] = {};
-            if (!CallVirtualOn(next_activity, "onStart", {}, "V", nullptr, 0, nullptr) ||
-                !CallVirtualOn(next_activity, "onPostCreate", {"Landroid/os/Bundle;"}, "V",
-                               post_create_arg, 1, nullptr) ||
-                !CallVirtualOn(next_activity, "onResume", {}, "V", nullptr, 0, nullptr) ||
-                !CallVirtualOn(next_activity, "onPostResume", {}, "V", nullptr, 0, nullptr)) {
+            if (!CallVirtualOn(next_activity, "onStart", {}, "V", nullptr, 0, nullptr)) {
               *reason = error_;
               return false;
             }
+            mark("onStart");
+            if (!CallVirtualOn(next_activity, "onPostCreate", {"Landroid/os/Bundle;"}, "V",
+                               post_create_arg, 1, nullptr)) {
+              *reason = error_;
+              return false;
+            }
+            mark("onPostCreate");
+            if (!CallVirtualOn(next_activity, "onResume", {}, "V", nullptr, 0, nullptr)) {
+              *reason = error_;
+              return false;
+            }
+            mark("onResume");
+            if (!CallVirtualOn(next_activity, "onPostResume", {}, "V", nullptr, 0, nullptr)) {
+              *reason = error_;
+              return false;
+            }
+            mark("onPostResume");
             return true;
           })) {
         return false;

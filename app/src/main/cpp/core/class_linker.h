@@ -96,6 +96,10 @@ class ClassLinker {
   session::LoaderRegistry& loaders() { return loaders_; }
   const std::vector<VClass*>& all_classes() const { return all_classes_; }
 
+  // 实例身份（进程内单调递增；用于跨会话失效缓存——同进程重开 app 时
+  // ClassLinker 对象地址可能复用，指针相等不足以判定同一 VM 实例）。
+  uint64_t InstanceId() const { return instance_id_; }
+
   // 错误信息
   const std::string& last_error() const { return last_error_; }
 
@@ -116,6 +120,7 @@ class ClassLinker {
 
   mem::Heap* heap_;
   InternTable* intern_;
+  uint64_t instance_id_ = 0;
   std::string last_error_;
   session::LoaderRegistry loaders_;
   int fallback_depth_ = 0;  // Java loadClass 回落递归保护

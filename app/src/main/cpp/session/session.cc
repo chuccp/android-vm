@@ -3,11 +3,17 @@
 
 #include <zlib.h>
 
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 
 namespace dexvm::session {
 
@@ -275,16 +281,90 @@ std::unique_ptr<Session> Session::Open(const std::string& path, std::string* err
 }
 
 // 按名抽取 zip entry（中央目录扫描 + 局部解压；见 session.h 契约）
+namespace {
+// 大 zip（APK）只读视图缓存：ReadZipResources 被 inflate/资产读取按次调用，
+// 目标 APK 是 171MB——每次整包 read 会让首帧 traversal 多出数秒。
+// 大文件走 mmap（零拷贝：不做 171MB 匿名内存拷贝，缺页按需调入 page cache，
+// 只触碰中央目录与命中的 layout/asset 条目）；mmap 不可用时回落整读。
+struct ZipBytes {
+  const uint8_t* data = nullptr;
+  size_t size = 0;
+  int64_t mtime = 0;
+  void* map_base = nullptr;
+  std::vector<uint8_t> owned;
+
+  ~ZipBytes() {
+    if (map_base != nullptr) munmap(map_base, size);
+  }
+};
+
+// 供既有解析体沿用 size()/data() 形态的最小视口。
+struct ZipView {
+  const uint8_t* ptr = nullptr;
+  size_t len = 0;
+  size_t size() const { return len; }
+  const uint8_t* data() const { return ptr; }
+};
+
+std::mutex g_zip_cache_mu;
+std::map<std::string, std::shared_ptr<const ZipBytes>> g_zip_cache;
+constexpr size_t kZipCacheMinBytes = 8u * 1024u * 1024u;
+
+std::shared_ptr<const ZipBytes> LoadZipBytes(const std::string& path, std::string* error) {
+  struct stat st {};
+  if (::stat(path.c_str(), &st) != 0) {
+    if (error != nullptr) *error = "stat failed: " + path;
+    return nullptr;
+  }
+  const int64_t mtime = static_cast<int64_t>(st.st_mtime);
+  {
+    std::lock_guard<std::mutex> lk(g_zip_cache_mu);
+    auto it = g_zip_cache.find(path);
+    if (it != g_zip_cache.end() && it->second->size == static_cast<size_t>(st.st_size) &&
+        it->second->mtime == mtime) {
+      return it->second;
+    }
+  }
+  auto zb = std::make_shared<ZipBytes>();
+  zb->size = static_cast<size_t>(st.st_size);
+  zb->mtime = mtime;
+  if (zb->size >= kZipCacheMinBytes) {
+    int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd >= 0) {
+      void* m = ::mmap(nullptr, zb->size, PROT_READ, MAP_PRIVATE, fd, 0);
+      ::close(fd);
+      if (m != MAP_FAILED) {
+        zb->map_base = m;
+        zb->data = static_cast<const uint8_t*>(m);
+      }
+    }
+  }
+  if (zb->data == nullptr) {
+    if (!ReadFile(path, &zb->owned, error)) return nullptr;
+    zb->data = zb->owned.data();
+    zb->size = zb->owned.size();
+  }
+  if (zb->size >= kZipCacheMinBytes) {
+    std::lock_guard<std::mutex> lk(g_zip_cache_mu);
+    auto it = g_zip_cache.find(path);
+    if (it != g_zip_cache.end() && it->second->size == zb->size &&
+        it->second->mtime == zb->mtime) {
+      return it->second;  // 并发加载竞争：另一线程已装入同一版本
+    }
+    g_zip_cache[path] = zb;  // 覆盖旧版本（APK 更新后 mtime/size 变化）
+    return zb;
+  }
+  return zb;  // 小 zip 不驻留（按次持有，避免碎片缓存膨胀）
+}
+}  // namespace
+
 bool ReadZipResources(const std::string& zip_path, const std::string& name,
                       std::vector<ResourceHit>* out, std::string* error) {
   if (out == nullptr) return false;
   out->clear();
-  std::vector<uint8_t> zip;
-  std::string err;
-  if (!ReadFile(zip_path, &zip, &err)) {
-    if (error != nullptr) *error = err;
-    return false;
-  }
+  std::shared_ptr<const ZipBytes> zip_holder = LoadZipBytes(zip_path, error);
+  if (!zip_holder) return false;
+  const ZipView zip{zip_holder->data, zip_holder->size};
   if (zip.size() < 22) {
     if (error != nullptr) *error = "zip too small";
     return false;

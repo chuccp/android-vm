@@ -16,6 +16,11 @@
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif
+// 每次 inflate 的整树 dump（逐节点 logcat）默认关闭：RecyclerView item 反复
+// inflate 时是秒级纯开销；需要复现布局树时以 -DDEXVM_INFLATE_DUMP=1 构建。
+#ifndef DEXVM_INFLATE_DUMP
+#define DEXVM_INFLATE_DUMP 0
+#endif
 #include <cstring>
 #include <map>
 #include <string>
@@ -811,13 +816,13 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
         if (!descriptor.empty()) {
           klass = ctx.state.linker->FindClass(descriptor);
         } else {
-          if (ev.name.find("ConstraintLayout") != std::string::npos) {
-            constraint_approx = true;  // 约束容器近似：LinearLayout(vertical)
-          } else {
-            klass = FindGuestClass(ctx.state, ctx.activity, ev.name);
-          }
+          // AOSP 语义：优先实例化布局 XML 指定的真实类。ConstraintLayout 等
+          // 容器只有在类确实不可用时才近似为 LinearLayout——否则 app 侧
+          // findViewById 的强转（ConstraintLayout）会 CCE，且约束布局语义
+          // 完全丢失（0dp/约束边距）。未知 tag 同样走通用容器承载。
+          klass = FindGuestClass(ctx.state, ctx.activity, ev.name);
           if (klass == nullptr) {
-            constraint_approx = true;  // 未知 tag：通用容器承载子 View
+            constraint_approx = true;
           }
         }
         if (klass == nullptr) klass = ctx.state.linker->FindClass("Landroid/widget/LinearLayout;");
@@ -1108,7 +1113,7 @@ Value VmLayoutHostInflate(VMState& state, VObject* self, const Value* args, size
     }() + "): " + (ctx.error.empty() ? "inflate failed" : ctx.error), ok);
     return r;
   }
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) && DEXVM_INFLATE_DUMP
   {
     struct Dump {
       static void walk(VObject* v, int depth) {

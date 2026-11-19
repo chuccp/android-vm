@@ -1,6 +1,7 @@
 package android.graphics;
 
 import android.content.res.AssetManager;
+import android.graphics.fonts.Font;
 import android.graphics.fonts.FontFamily;
 import android.graphics.fonts.FontStyle;
 
@@ -10,10 +11,9 @@ import java.io.FileDescriptor;
 /**
  * 字体（AOSP android.graphics.Typeface 公开面；§31.7 C 档 lib）。
  *
- * <p>§31.7 判定：复杂类（字族解析/回退链）→ lib；本实现为「身份 + 风格态」
- * 形态——create/createFromAsset/createFromFile 返回风格化 Typeface 实例
- * （字体文件解析后置，不阻塞引用面）。默认字族 DEFAULT/SANS_SERIF/SERIF/
- * MONOSPACE 于 &lt;clinit&gt; 就绪。
+ * <p>字体解析/回退链由宿主真 Android 字体栈承接（VmFonts 桥 -> 宿主
+ * FontBridge/Typeface）；本类保留 AOSP API 形状与风格态，句柄 0 = 平台默认
+ * 字体。桥不可用（桌面单测）时句柄保持 0，Paint 侧回落网格度量。
  */
 public class Typeface {
     public static final int NORMAL = 0;
@@ -25,63 +25,91 @@ public class Typeface {
 
     public static final Typeface DEFAULT = new Typeface();
     public static final Typeface DEFAULT_BOLD = create(DEFAULT, BOLD);
-    public static final Typeface SANS_SERIF = new Typeface();
-    public static final Typeface SERIF = new Typeface();
-    public static final Typeface MONOSPACE = new Typeface();
+    public static final Typeface SANS_SERIF = create("sans-serif", NORMAL);
+    public static final Typeface SERIF = create("serif", NORMAL);
+    public static final Typeface MONOSPACE = create("monospace", NORMAL);
 
     static {
         sDefaultTypeface = DEFAULT;
     }
 
     private final int mStyle;
+    private final long mNativeHandle;
 
     public Typeface() {
-        this(0);
+        this(0, 0L);
     }
 
-    private Typeface(int style) {
+    private Typeface(int style, long nativeHandle) {
         this.mStyle = style;
+        this.mNativeHandle = nativeHandle;
     }
 
     public Typeface(AssetManager assetMgr, String path) {
-        this(0);
+        this(0, 0L);
     }
 
     public Typeface(FileDescriptor fd) {
-        this(0);
+        this(0, 0L);
     }
 
     public Typeface(FontFamily family) {
-        this(0);
+        this(0, handleFromFamily(family, 0));
+    }
+
+    private static long handleFromFamily(FontFamily family, int style) {
+        if (family == null || !VmFonts.available()) return 0L;
+        Font first = family.getFirstFont();
+        if (first != null && first.getResourceId() != 0) {
+            long h = VmFonts.createFromResource(first.getResourceId(), style);
+            if (h != 0) return h;
+        }
+        return VmFonts.createFromFamily(null, style);
+    }
+
+    /** 宿主字体句柄（0 = 平台默认字体；materializer/ViewModel 诊断面）。 */
+    public long nativeHandle() {
+        return this.mNativeHandle;
     }
 
     /** 家族内风格化创建（AOSP create(Typeface,int) 语义：风格参数，非回退）。 */
     public static Typeface create(Typeface family, int style) {
         int s = style & BOLD_ITALIC;
-        if (family == null) return new Typeface(s);
-        if (family.mStyle == s) return family;
-        return new Typeface(s);
+        long h = 0L;
+        if (VmFonts.available()) {
+            if (family != null && family.mNativeHandle != 0) {
+                h = VmFonts.restyle(family.mNativeHandle, s);
+            }
+            if (h == 0L) h = VmFonts.createFromFamily(null, s);
+        }
+        if (family != null && family.mStyle == s && family.mNativeHandle == h) return family;
+        return new Typeface(s, h);
     }
 
     public static Typeface create(Typeface family, int style, boolean isBold) {
         return create(family, style);
     }
 
-    /** 按 familyName 创建（真字体解析后置：返回风格载体）。 */
+    /** 按 familyName 创建（宿主 Typeface.create(family, style)）。 */
     public static Typeface create(String familyName, int style) {
-        return create((Typeface) null, style);
+        int s = style & BOLD_ITALIC;
+        long h = VmFonts.available() ? VmFonts.createFromFamily(familyName, s) : 0L;
+        return new Typeface(s, h);
     }
 
     public static Typeface createFromAsset(AssetManager assetMgr, String path) {
-        return new Typeface();
+        // 资产字体暂按默认字体（APK 内资产需抽取落盘后交宿主）。
+        return create((String) null, 0);
     }
 
     public static Typeface createFromFile(File file) {
-        return new Typeface();
+        return file != null ? createFromFile(file.getAbsolutePath()) : create((String) null, 0);
     }
 
     public static Typeface createFromFile(String path) {
-        return new Typeface();
+        long h = VmFonts.available() && path != null
+                ? VmFonts.createFromFile(path, 0) : 0L;
+        return new Typeface(0, h);
     }
 
     public static Typeface defaultFromStyle(int style) {
@@ -113,26 +141,29 @@ public class Typeface {
         if (this == o) return true;
         if (!(o instanceof Typeface)) return false;
         Typeface t = (Typeface) o;
-        return this.mStyle == t.mStyle;
+        return this.mStyle == t.mStyle && this.mNativeHandle == t.mNativeHandle;
     }
 
     @Override
     public int hashCode() {
-        return this.mStyle;
+        return this.mStyle * 31 + (int) (this.mNativeHandle ^ (this.mNativeHandle >>> 32));
     }
 
-    /** 字族构建器（AOSP Typeface.Builder 面；解析后置）。 */
+    /** 字族构建器（AOSP Typeface.Builder 面）。 */
     public static final class Builder {
         private int mWeight = FontStyle.FONT_WEIGHT_NORMAL;
         private boolean mItalic;
+        private String mPath;
 
         public Builder(File file) {
+            this.mPath = file != null ? file.getAbsolutePath() : null;
         }
 
         public Builder(FileDescriptor fd) {
         }
 
         public Builder(String path) {
+            this.mPath = path;
         }
 
         public Builder setWeight(int weight) {
@@ -152,15 +183,21 @@ public class Typeface {
         public Typeface build() {
             int style = (this.mWeight >= FontStyle.FONT_WEIGHT_BOLD ? BOLD : 0)
                     | (this.mItalic ? ITALIC : 0);
-            return create((Typeface) null, style);
+            if (this.mPath != null && VmFonts.available()) {
+                long h = VmFonts.createFromFile(this.mPath, style);
+                if (h != 0) return new Typeface(style, h);
+            }
+            return create((String) null, style);
         }
     }
 
-    /** 自定义回退构建器（AOSP Typeface.CustomFallbackBuilder 面；解析后置）。 */
+    /** 自定义回退构建器（AOSP Typeface.CustomFallbackBuilder 面）。 */
     public static final class CustomFallbackBuilder {
+        private final FontFamily mFamily;
         private int mStyle;
 
         public CustomFallbackBuilder(FontFamily baseFont) {
+            this.mFamily = baseFont;
         }
 
         public CustomFallbackBuilder setStyle(FontStyle fontStyle) {
@@ -172,7 +209,8 @@ public class Typeface {
         }
 
         public Typeface build() {
-            return create((Typeface) null, this.mStyle);
+            long h = handleFromFamily(this.mFamily, this.mStyle);
+            return new Typeface(this.mStyle, h);
         }
     }
 }

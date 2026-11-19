@@ -1677,7 +1677,14 @@ public class BigDecimal extends Number implements Comparable<BigDecimal> {
             }
         }
 
-        return Float.parseFloat(this.toString());
+        // 根因修复：此前回落 Float.parseFloat(toString())，而 FloatingDecimal
+        // 解析浮点又构造 BigDecimal 并调 floatValue() —— 大指数/高精度值形成
+        // 无限递归（Double.parseDouble → BigDecimal.doubleValue 同构）。
+        // 这里用 BigInteger/compact 的独立转换 + 10^scale 缩放解环。
+        float base = intCompact != INFLATED ? (float) intCompact : intVal.floatValue();
+        if (scale == 0) return base;
+        float factor = (float) Math.pow(10.0, Math.abs((double) scale));
+        return scale > 0 ? base / factor : base * factor;
     }
 
     @Override
@@ -1698,7 +1705,12 @@ public class BigDecimal extends Number implements Comparable<BigDecimal> {
             }
         }
 
-        return Double.parseDouble(this.toString());
+        // 根因修复（同 floatValue）：Double.parseDouble ↔ FloatingDecimal 构造
+        // BigDecimal 会与本方法成环；改用独立数值转换 + 10^scale 缩放。
+        double base = intCompact != INFLATED ? (double) intCompact : intVal.doubleValue();
+        if (scale == 0) return base;
+        double factor = Math.pow(10.0, Math.abs((double) scale));
+        return scale > 0 ? base / factor : base * factor;
     }
 
     private static final double DOUBLE_10_POW[] = {

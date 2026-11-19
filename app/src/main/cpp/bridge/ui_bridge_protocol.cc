@@ -64,6 +64,25 @@ ObjHeader* GetRefField(VObject* o, uint32_t off) {
   return v;
 }
 
+// 容器布局语义（宿主 fallback measure/layout 的类事实）：按真实父类链判定，
+// 不用类名后缀猜（FeedSearchView 等自定义容器名不含 Frame/Linear）。
+int32_t LayoutKindOf(VObject* view) {
+  if (view == nullptr) return 0;
+  for (VClass* k = view->klass; k != nullptr; k = k->super_class) {
+    if (k->descriptor == "Landroid/widget/LinearLayout;") return 1;
+    // appcompat 线性容器（ZHLinearLayout/ZHMainTabContainer 的父类）：
+    // 不是 android.widget.LinearLayout 子类，但布局语义相同。
+    if (k->descriptor == "Landroidx/appcompat/widget/LinearLayoutCompat;") return 1;
+    if (k->descriptor == "Landroid/widget/FrameLayout;") return 2;
+    if (k->descriptor == "Landroid/widget/RelativeLayout;") return 3;
+    if (k->descriptor == "Landroid/widget/ScrollView;" ||
+        k->descriptor == "Landroid/widget/HorizontalScrollView;") {
+      return 4;
+    }
+  }
+  return 0;
+}
+
 int32_t ViewI(VObject* v, const char* name) {
   VField* f = FindField(v->klass, name);
   return f != nullptr ? GetIField(v, f->offset) : 0;
@@ -888,9 +907,16 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
         add(kPropScroll, PropValue::Point(ViewI(view, "mScrollX"), ViewI(view, "mScrollY")));
         add(kPropMeasured,
             PropValue::Point(ViewI(view, "mMeasuredWidth"), ViewI(view, "mMeasuredHeight")));
+        add(kPropOrientation, PropValue::Int(ViewI(view, "mOrientation")));
+        add(kPropLayoutKind, PropValue::Int(LayoutKindOf(view)));
         VObject* lp = reinterpret_cast<VObject*>(ViewRef(view, "mLayoutParams"));
         if (lp != nullptr) {
           add(kPropLayoutParams, PropValue::Point(ViewI(lp, "width"), ViewI(lp, "height")));
+          add(kPropLayoutGravity, PropValue::Int(ViewI(lp, "gravity")));
+          add(kPropLayoutMargins,
+              PropValue::Rect(ViewI(lp, "leftMargin"), ViewI(lp, "topMargin"),
+                              ViewI(lp, "rightMargin"), ViewI(lp, "bottomMargin")));
+          add(kPropLayoutWeight, PropValue::Float(ViewF(lp, "weight")));
         }
         add(kPropHasClickListener, PropValue::Bool(HasGuestClickListener(view)));
         add(kPropGravity, PropValue::Int(ViewI(view, "mGravity")));

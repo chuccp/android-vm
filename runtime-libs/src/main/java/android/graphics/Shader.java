@@ -5,6 +5,14 @@ package android.graphics;
  * 仅 Paint.setShader/getShader 引用面载体；渐变族语义后置。
  */
 public class Shader {
+
+    /** 平铺模式（AOSP Shader.TileMode；渐变/位图着色器构造签名依赖）。 */
+    public enum TileMode {
+        CLAMP,
+        REPEAT,
+        MIRROR
+    }
+
     public Shader() {
     }
 

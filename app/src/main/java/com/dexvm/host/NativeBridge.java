@@ -10,6 +10,25 @@ public final class NativeBridge {
 
     public static native String nativeVmVersion();
 
+    // ---- 字体桥 worker 通道（guest fiber 不直接调宿主 JNI；见 FontBridge）----
+    /** 阻塞取下一条字体请求（无请求休眠）；返回请求 id，0=退出。 */
+    public static native long nativeFontNextRequest();
+
+    public static native int nativeFontOp(long id);
+
+    public static native int nativeFontStyle(long id);
+
+    public static native float nativeFontSize(long id);
+
+    public static native long nativeFontBase(long id);
+
+    public static native String nativeFontString(long id);
+
+    public static native String nativeFontText(long id);
+
+    public static native void nativeFontComplete(long id, long handle, float width,
+                                                 int[] metrics, boolean metricsOk);
+
     /**
      * 宿主桥接值面：把系统服务真值快照（"k=v\n" 行编码，如 telephony.*）推入
      * VM；guest lib 类经 com.dexvm.runtime.Host.get(key) 读取（桥接优先口径）。

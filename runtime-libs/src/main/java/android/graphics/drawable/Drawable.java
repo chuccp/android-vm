@@ -45,6 +45,16 @@ public abstract class Drawable {
 
     public abstract void draw(Canvas canvas);
 
+    /**
+     * AOSP Drawable.createFromXml：XML drawable 解析归宿主资源桥；当前返回
+     * 空 ColorDrawable 占位，避免 framework 资源链 NoSuchMethodError。
+     */
+    public static Drawable createFromXml(android.content.res.Resources resources,
+                                         org.xmlpull.v1.XmlPullParser parser)
+            throws org.xmlpull.v1.XmlPullParserException, java.io.IOException {
+        return new ColorDrawable(0);
+    }
+
     public void setBounds(int left, int top, int right, int bottom) {
         this.mBounds.set(left, top, right, bottom);
         onBoundsChange(this.mBounds);

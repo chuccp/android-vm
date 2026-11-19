@@ -487,7 +487,18 @@ public class Paint {
         if (text == null) return 0f;
         if (start < 0) start = 0;
         if (end > text.length()) end = text.length();
+        // 宿主真字体栈优先（AOSP：shaping/measure 在平台 native）；桥不可用
+        // 或失败（-1）时回落网格口径。
+        if (VmFonts.available()) {
+            float w = VmFonts.measureText(fontHandle(),
+                    text.subSequence(start, end).toString(), this.mTextSize);
+            if (w >= 0f) return w * this.mTextScaleX;
+        }
         return maxLineChars(text, start, end) * 8 * gridScale() * this.mTextScaleX;
+    }
+
+    private long fontHandle() {
+        return this.mTypeface != null ? this.mTypeface.nativeHandle() : 0L;
     }
 
     public float measureText(char[] text, int index, int count) {
@@ -503,17 +514,34 @@ public class Paint {
         return w;
     }
 
-    /** 网格行高（10s）；单行内容高度（8s）。 */
+    /** 宿主字体度量优先；桥不可用时回落网格（行高 10s / 单行 8s）。 */
     public int getFontMetricsInt(FontMetricsInt fmi) {
-        int s = gridScale();
-        int top = -8 * s;
-        int descent = 2 * s;
+        int top;
+        int descent;
+        int ascent;
+        int bottom;
+        int leading;
+        int[] out = new int[5];
+        if (VmFonts.available() && VmFonts.fontMetrics(fontHandle(), this.mTextSize, out)) {
+            top = out[0];
+            ascent = out[1];
+            descent = out[2];
+            bottom = out[3];
+            leading = out[4];
+        } else {
+            int s = gridScale();
+            top = -8 * s;
+            ascent = top;
+            descent = 2 * s;
+            bottom = descent;
+            leading = 0;
+        }
         if (fmi != null) {
             fmi.top = top;
-            fmi.ascent = top;
+            fmi.ascent = ascent;
             fmi.descent = descent;
-            fmi.bottom = descent;
-            fmi.leading = 0;
+            fmi.bottom = bottom;
+            fmi.leading = leading;
         }
         return descent - top;
     }
@@ -525,15 +553,32 @@ public class Paint {
     }
 
     public float getFontMetrics(FontMetrics fm) {
-        int s = gridScale();
-        float top = -8 * s;
-        float descent = 2 * s;
+        int top;
+        int ascent;
+        int descent;
+        int bottom;
+        int leading;
+        int[] out = new int[5];
+        if (VmFonts.available() && VmFonts.fontMetrics(fontHandle(), this.mTextSize, out)) {
+            top = out[0];
+            ascent = out[1];
+            descent = out[2];
+            bottom = out[3];
+            leading = out[4];
+        } else {
+            int s = gridScale();
+            top = -8 * s;
+            ascent = top;
+            descent = 2 * s;
+            bottom = descent;
+            leading = 0;
+        }
         if (fm != null) {
             fm.top = top;
-            fm.ascent = top;
+            fm.ascent = ascent;
             fm.descent = descent;
-            fm.bottom = descent;
-            fm.leading = 0;
+            fm.bottom = bottom;
+            fm.leading = leading;
         }
         return descent - top;
     }

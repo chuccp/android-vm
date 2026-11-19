@@ -241,8 +241,9 @@ public class LinkedList<E>
     }
 
     public E get(int index) {
-        checkElementIndex(index);
-        return node(index).item;
+        // 遍历面由 VM 原生桥承接（AOSP：集合核心是运行时高效实现；
+        // 解释器下每次 node 步骤的 DoCall/帧分配是启动期热点）。
+        return (E) VmLinkedList.get(this, index);
     }
 
     public E set(int index, E element) {
@@ -290,7 +291,12 @@ public class LinkedList<E>
     }
 
     Node<E> node(int index) {
+        // 同 get：节点定位走 VM 原生桥（保留 lib 内其他算法方法的语义面）。
+        return (Node<E>) VmLinkedList.node(this, index);
+    }
 
+    /** 原 AOSP lib 实现（保留参照；不再被 node(int) 调用）。 */
+    Node<E> nodeJava(int index) {
         if (index < (size >> 1)) {
             Node<E> x = first;
             for (int i = 0; i < index; i++)

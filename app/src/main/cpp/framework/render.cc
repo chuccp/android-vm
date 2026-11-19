@@ -10,6 +10,7 @@
 #include "framework/render.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <new>
@@ -27,6 +28,10 @@
 // 登记（viewId -> guest listener 注入面，bridge/ui_bridge_input.h 契约）。
 namespace dexvm::runtime {
 Value ViewSetOnClickListener(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+// 宿主真字体度量桥（core/framework_font.cc；false=不可用回落网格）
+bool HostMeasureTextUtf16(const uint16_t* chars, int32_t len, float text_size,
+                          float* out_width);
+bool HostFontMetricsInt(float text_size, int32_t out[5]);
 // Activity.addContentView 覆盖层登记（core/framework_inflate.cc 实现体）
 std::vector<VObject*> AddedContentViews(VObject* activity);
 // 窗口焦点语义（core/framework_view.cc 实现体）
@@ -416,10 +421,40 @@ Value TVOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bo
   const uint16_t* chars = text != nullptr ? text->chars() : nullptr;
   int32_t len = text != nullptr ? text->length : 0;
   float size = ViewF(self, "mTextSize");
-  int32_t desired_w =
-      TextMeasureWidth(chars, len, size) + ViewI(self, "mPaddingLeft") + ViewI(self, "mPaddingRight");
-  int32_t desired_h =
-      TextMeasureHeight(chars, len, size) + ViewI(self, "mPaddingTop") + ViewI(self, "mPaddingBottom");
+  const int32_t pad_w = ViewI(self, "mPaddingLeft") + ViewI(self, "mPaddingRight");
+  const int32_t pad_h = ViewI(self, "mPaddingTop") + ViewI(self, "mPaddingBottom");
+  int32_t desired_w = 0;
+  int32_t desired_h = 0;
+  bool bridged = false;
+  // 宿主真字体度量优先（AOSP：文本 shaping/measure 在平台 native）；逐行
+  // 取最大行宽 + FontMetricsInt 行高。桥不可用（桌面单测）回落网格口径。
+  if (chars != nullptr && len > 0) {
+    int32_t lines = 1;
+    int32_t max_line_w = 0;
+    int32_t start = 0;
+    bool ok = true;
+    for (int32_t i = 0; i <= len; i++) {
+      if (i != len && chars[i] != u'\n') continue;
+      float w = 0.0f;
+      if (!dexvm::runtime::HostMeasureTextUtf16(chars + start, i - start, size, &w)) {
+        ok = false;
+        break;
+      }
+      max_line_w = std::max(max_line_w, static_cast<int32_t>(std::ceil(w)));
+      if (i != len) lines++;
+      start = i + 1;
+    }
+    int32_t fm[5] = {0, 0, 0, 0, 0};
+    if (ok && dexvm::runtime::HostFontMetricsInt(size, fm)) {
+      desired_w = max_line_w + pad_w;
+      desired_h = lines * std::max(fm[3] - fm[0], 1) + pad_h;
+      bridged = true;
+    }
+  }
+  if (!bridged) {
+    desired_w = TextMeasureWidth(chars, len, size) + pad_w;
+    desired_h = TextMeasureHeight(chars, len, size) + pad_h;
+  }
   SetMeasured(self, ResolveSize(desired_w, args[0].i), ResolveSize(desired_h, args[1].i));
   return Value{};
 }
@@ -638,11 +673,13 @@ Value LLOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bo
         total_weight += lp.weight;  // 0dp + weight：高度由剩余空间分配
         continue;
       }
-      int32_t avail_w = content_w - lp.ml - lp.mr;
       Value cargs[2] = {};
-      cargs[0].i = GetSpecMode(wspec) == kUnspecified ? MakeMeasureSpec(0, kUnspecified)
-                                                     : ChildWidthSpec(lp, avail_w);
-      cargs[1].i = ChildHeightSpec(lp, content_h - sum_child_h);
+      // AOSP getChildMeasureSpec 全口径：WRAP_CONTENT 在父约束有界时得
+      // AT_MOST(剩余)，而不是 UNSPECIFIED(0)——后者会让 ConstraintLayout 等
+      // 按"零可用空间"求解，整棵子树高度塌成 0（首帧 bounds0 根因）。
+      cargs[0].i = ChildMeasureSpecFull(wspec, pad_l + pad_r, lp.ml, lp.mr, 0, lp.width);
+      cargs[1].i =
+          ChildMeasureSpecFull(hspec, pad_t + pad_b, lp.mt, lp.mb, sum_child_h, lp.height);
       if (!CallVirtual(state, child, "measure", {"I", "I"}, "V", cargs, 2, nullptr)) {
         *ok = false;
         return Value{};
@@ -664,9 +701,7 @@ Value LLOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bo
         int32_t child_h = static_cast<int32_t>(
             static_cast<float>(remaining) * (lp.weight / total_weight));
         Value cargs[2] = {};
-        cargs[0].i = GetSpecMode(wspec) == kUnspecified
-                         ? MakeMeasureSpec(0, kUnspecified)
-                         : ChildWidthSpec(lp, content_w - lp.ml - lp.mr);
+        cargs[0].i = ChildMeasureSpecFull(wspec, pad_l + pad_r, lp.ml, lp.mr, 0, lp.width);
         cargs[1].i = MakeMeasureSpec(std::max(child_h - lp.mt - lp.mb, 0), kExactly);
         if (!CallVirtual(state, child, "measure", {"I", "I"}, "V", cargs, 2, nullptr)) {
           *ok = false;
@@ -758,10 +793,14 @@ Value ContainerOnMeasure(VMState& state, VObject* self, const Value* args, size_
       if (ViewI(child, "mVisibility") == 8) continue;  // GONE：不参与 measure
       ChildLp lp = ReadChildLp(child);
       Value cargs[2] = {};
-      cargs[0].i = GetSpecMode(wspec) == kUnspecified
-                       ? MakeMeasureSpec(0, kUnspecified)
-                       : ChildWidthSpec(lp, content_w - lp.ml - lp.mr);
-      cargs[1].i = ChildHeightSpec(lp, content_h - sum_h);
+      cargs[0].i = ChildMeasureSpecFull(wspec,
+                                        ViewI(self, "mPaddingLeft") +
+                                            ViewI(self, "mPaddingRight"),
+                                        lp.ml, lp.mr, 0, lp.width);
+      cargs[1].i = ChildMeasureSpecFull(hspec,
+                                        ViewI(self, "mPaddingTop") +
+                                            ViewI(self, "mPaddingBottom"),
+                                        lp.mt, lp.mb, sum_h, lp.height);
       if (!CallVirtual(state, child, "measure", {"I", "I"}, "V", cargs, 2, nullptr)) {
         *ok = false;
         return Value{};
@@ -2120,6 +2159,75 @@ bool LayoutAddedContentViews(VMState& state, VObject* activity, int32_t width, i
   return true;
 }
 
+#if defined(__ANDROID__)
+// 整体子树 dump：定位 AppBarLayout 等塌缩容器的内部测量面（一次/进程）。
+void DumpViewSubtree(VObject* v, int depth, int* budget) {
+  if (v == nullptr || depth > 12 || *budget <= 0) return;
+  --*budget;
+  int32_t w = ViewI(v, "mRight") - ViewI(v, "mLeft");
+  int32_t h = ViewI(v, "mBottom") - ViewI(v, "mTop");
+  int32_t mw = ViewI(v, "mMeasuredWidth");
+  int32_t mh = ViewI(v, "mMeasuredHeight");
+  ChildLp lp = ReadChildLp(v);
+  VString* text = ViewText(v);
+  __android_log_print(ANDROID_LOG_INFO, "DexVmMeasure",
+                      "T%*s%s vis=%d b=%d,%d %dx%d m=%dx%d lp=%dx%d ts=%.1f len=%d", depth * 2, "",
+                      v->klass != nullptr ? v->klass->descriptor.c_str() : "?",
+                      ViewI(v, "mVisibility"), ViewI(v, "mLeft"), ViewI(v, "mTop"), w, h, mw, mh,
+                      lp.width, lp.height, static_cast<double>(ViewF(v, "mTextSize")),
+                      text != nullptr ? text->length : -1);
+  VArray* children = ViewChildren(v);
+  if (children == nullptr) return;
+  for (int32_t i = 0; i < children->length; i++) {
+    DumpViewSubtree(reinterpret_cast<VObject*>(GetArrRef(children, i)), depth + 1, budget);
+  }
+}
+
+VObject* FindViewByClass(VObject* v, const char* needle, int depth) {
+  if (v == nullptr || depth > 14) return nullptr;
+  if (v->klass != nullptr && v->klass->descriptor.find(needle) != std::string::npos) return v;
+  VArray* children = ViewChildren(v);
+  if (children == nullptr) return nullptr;
+  for (int32_t i = 0; i < children->length; i++) {
+    if (VObject* hit = FindViewByClass(reinterpret_cast<VObject*>(GetArrRef(children, i)), needle,
+                                       depth + 1)) {
+      return hit;
+    }
+  }
+  return nullptr;
+}
+
+// 布局收敛诊断（一次/进程，限量）：列出"可见但高度/测量高度异常小"的节点，
+// 定位文本/容器塌缩的具体类（bounds+ 里也可能高度=4）。
+void DumpTinyViews(VObject* v, int depth, int* budget, int* small) {
+  if (v == nullptr || depth > 14 || *budget <= 0) return;
+  --*budget;
+  int32_t w = ViewI(v, "mRight") - ViewI(v, "mLeft");
+  int32_t h = ViewI(v, "mBottom") - ViewI(v, "mTop");
+  int32_t mw = ViewI(v, "mMeasuredWidth");
+  int32_t mh = ViewI(v, "mMeasuredHeight");
+  int32_t vis = ViewI(v, "mVisibility");
+  bool tiny_bounds = w > 0 && h > 0 && h < 12;
+  bool tiny_measured = mw > 0 && mh > 0 && mh < 12;
+  if (vis == 0 && (tiny_bounds || tiny_measured) && *small < 48) {
+    VString* text = ViewText(v);
+    ChildLp lp = ReadChildLp(v);
+    __android_log_print(ANDROID_LOG_INFO, "DexVmMeasure",
+                        "%*s%s b=%d,%d %dx%d m=%dx%d lp=%dx%d ts=%.1f len=%d", depth * 2, "",
+                        v->klass != nullptr ? v->klass->descriptor.c_str() : "?", ViewI(v, "mLeft"),
+                        ViewI(v, "mTop"), w, h, mw, mh, lp.width, lp.height,
+                        static_cast<double>(ViewF(v, "mTextSize")),
+                        text != nullptr ? text->length : -1);
+    ++*small;
+  }
+  VArray* children = ViewChildren(v);
+  if (children == nullptr) return;
+  for (int32_t i = 0; i < children->length; i++) {
+    DumpTinyViews(reinterpret_cast<VObject*>(GetArrRef(children, i)), depth + 1, budget, small);
+  }
+}
+#endif
+
 namespace {
 // traversal 失败归因：guest 异常 descriptor + message（诊断面；异常清掉，
 // phase 记录仍按通用原因）
@@ -2266,6 +2374,21 @@ bool RunFirstFramePipeline(VMState& state, VObject* activity, dexvm::bridge::UIB
         state.ClearException();
       }
     }
+#if defined(__ANDROID__)
+    // 布局收敛诊断：首帧后打一次"可见但高度塌缩"的节点清单。
+    static std::atomic<bool> tiny_dumped{false};
+    if (!tiny_dumped.exchange(true, std::memory_order_relaxed)) {
+      int budget = 4000;
+      int small = 0;
+      DumpTinyViews(content, 0, &budget, &small);
+      __android_log_print(ANDROID_LOG_INFO, "DexVmMeasure", "tiny list done count=%d", small);
+      VObject* appbar = FindViewByClass(content, "AppBarLayout", 0);
+      int subtree_budget = 120;
+      __android_log_print(ANDROID_LOG_INFO, "DexVmMeasure", "appbar subtree root=%s",
+                          appbar != nullptr ? "found" : "fallback-content");
+      DumpViewSubtree(appbar != nullptr ? appbar : content, 0, &subtree_budget);
+    }
+#endif
     ui->MarkCondition(dexvm::bridge::kTraversalComplete);
     return true;
   });

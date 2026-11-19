@@ -2,10 +2,16 @@
 //
 // VM 的 socket 栈直接跑在宿主进程系统调用上：宿主在线 = guest 网络可用。
 // 本面把该事实投影为 Android ConnectivityManager/NetworkInfo/WifiManager 语义
-// （getActiveNetworkInfo/isConnected/getNetworkCapabilities 等），不伪造断网态；
+// （getActiveNetworkInfo/isConnected/getNetworkCapabilities 等）；
 // NetworkCallback 注册即回调 onAvailable（宿主网络已就绪）。真实连通性判定
 // （DNS/证书/TCP）仍由宿主内核与 TLS 栈完成。
+//
+// 例外：启动窗口期（BootNetworkOffline，见 core/boot_network.h）投影为断网态。
+// 这不是伪造宿主事实，而是 AOSP starting window 口径下“网络尚未就绪”的
+// 启动语义——app 的配置/埋点请求直接走本地默认值，避免首帧被网络等待拖住；
+// 首帧出现后立即恢复在线投影。
 #include "core/builtins_internal.h"
+#include "core/boot_network.h"
 #include "core/class_linker.h"
 #include "core/framework_builtins.h"
 #include "core/framework_builtins_internal.h"
@@ -13,11 +19,25 @@
 #include "core/interpreter.h"
 #include "core/vm_types.h"
 
+#include <atomic>
 #include <cstring>
 #include <string>
 #include <vector>
 
 namespace dexvm::runtime {
+
+namespace {
+std::atomic<bool> g_boot_network_offline{false};
+}  // namespace
+
+void SetBootNetworkOffline(bool offline) {
+  g_boot_network_offline.store(offline, std::memory_order_relaxed);
+}
+
+bool BootNetworkOffline() {
+  return g_boot_network_offline.load(std::memory_order_relaxed);
+}
+
 namespace {
 
 constexpr uint32_t kPub = 0x1;
@@ -504,6 +524,7 @@ void NotifyAvailable(VMState& state, VObject* callback) {
 Value CMGetActiveNetworkInfo(VMState& state, VObject*, const Value*, size_t, bool* ok) {
   *ok = true;
   Value r{};
+  if (BootNetworkOffline()) return r;  // 启动窗口期：无活动网络（AOSP 断网语义）
   r.ref = NewNetworkInfo(state, 1);  // TYPE_WIFI
   return r;
 }
@@ -511,6 +532,7 @@ Value CMGetActiveNetworkInfo(VMState& state, VObject*, const Value*, size_t, boo
 Value CMGetNetworkInfo(VMState& state, VObject*, const Value* args, size_t n, bool* ok) {
   *ok = true;
   Value r{};
+  if (BootNetworkOffline()) return r;
   int32_t type = n > 0 ? args[0].i : 1;
   if (type != 0 && type != 1 && type != 9) return r;  // MOBILE/WIFI/ETHERNET 之外 null
   r.ref = NewNetworkInfo(state, type == 0 ? 0 : 1);
@@ -524,6 +546,10 @@ Value CMGetAllNetworks(VMState& state, VObject*, const Value*, size_t, bool* ok)
   if (network_cls == nullptr) return r;
   VClass* arr_cls = state.linker->FindArrayClass(network_cls);
   if (arr_cls == nullptr) return r;
+  if (BootNetworkOffline()) {
+    r.ref = state.linker->AllocArray(arr_cls, 0);
+    return r;
+  }
   VArray* arr = state.linker->AllocArray(arr_cls, 1);
   if (arr == nullptr) return r;
   ObjHeader* network = NewNetwork(state, 1);
@@ -535,20 +561,25 @@ Value CMGetAllNetworks(VMState& state, VObject*, const Value*, size_t, bool* ok)
 Value CMGetActiveNetwork(VMState& state, VObject*, const Value*, size_t, bool* ok) {
   *ok = true;
   Value r{};
+  if (BootNetworkOffline()) return r;
   r.ref = NewNetwork(state, 1);
   return r;
 }
 
-Value CMGetNetworkCapabilities(VMState& state, VObject*, const Value*, size_t, bool* ok) {
+Value CMGetNetworkCapabilities(VMState& state, VObject*, const Value* args, size_t n,
+                               bool* ok) {
   *ok = true;
   Value r{};
+  // AOSP：network 为 null 或启动窗口期无网时返回 null。
+  if (BootNetworkOffline() || n < 1 || args[0].ref == nullptr) return r;
   r.ref = NewNetworkCapabilities(state);
   return r;
 }
 
-Value CMGetLinkProperties(VMState& state, VObject*, const Value*, size_t, bool* ok) {
+Value CMGetLinkProperties(VMState& state, VObject*, const Value* args, size_t n, bool* ok) {
   *ok = true;
   Value r{};
+  if (BootNetworkOffline() || n < 1 || args[0].ref == nullptr) return r;
   r.ref = NewLinkProperties(state);
   return r;
 }
@@ -556,7 +587,8 @@ Value CMGetLinkProperties(VMState& state, VObject*, const Value*, size_t, bool* 
 Value CMIsMetered(VMState& state, VObject*, const Value*, size_t, bool* ok) {
   (void)state;
   *ok = true;
-  Value r{};  // WiFi 非计费
+  Value r{};
+  r.i = BootNetworkOffline() ? 1 : 0;  // 无默认网络时 AOSP 返回 true
   return r;
 }
 
@@ -564,12 +596,14 @@ Value CMIsDefaultNetworkActive(VMState& state, VObject*, const Value*, size_t, b
   (void)state;
   *ok = true;
   Value r{};
-  r.i = 1;
+  r.i = BootNetworkOffline() ? 0 : 1;
   return r;
 }
 
 Value CMRegisterCallback(VMState& state, VObject*, const Value* args, size_t n, bool* ok) {
   *ok = true;
+  // 启动窗口期无网络：只注册不回调（AOSP 无默认网络时不会 onAvailable）。
+  if (BootNetworkOffline()) return Value{};
   // (NetworkRequest, NetworkCallback[, Handler]) / (NetworkCallback)
   VObject* callback = nullptr;
   for (size_t i = 0; i < n; i++) {
@@ -639,7 +673,7 @@ Value WifiIsEnabled(VMState& state, VObject*, const Value*, size_t, bool* ok) {
   (void)state;
   *ok = true;
   Value r{};
-  r.i = 1;
+  r.i = BootNetworkOffline() ? 0 : 1;
   return r;
 }
 
@@ -647,7 +681,7 @@ Value WifiGetState(VMState& state, VObject*, const Value*, size_t, bool* ok) {
   (void)state;
   *ok = true;
   Value r{};
-  r.i = 3;  // WIFI_STATE_ENABLED
+  r.i = BootNetworkOffline() ? 1 : 3;  // BOOT: WIFI_STATE_DISABLED；在线: ENABLED
   return r;
 }
 

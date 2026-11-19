@@ -29,12 +29,19 @@
 #include <zlib.h>
 #if defined(__ANDROID__)
 #include <android/log.h>
+
+#include <atomic>
+#include <chrono>
+#include <thread>
 #endif
 
 #include "bridge/bridge.h"
 #include "bridge/ui_bridge_input.h"
 #include "bridge/ui_bridge_protocol.h"
+#include "core/boot_network.h"
 #include "core/builtins.h"
+#include "core/font_worker.h"
+#include "core/host_java.h"
 #include "core/class_linker.h"
 #include "core/framework_builtins.h"
 #include "core/framework_builtins.h"
@@ -337,6 +344,22 @@ std::string RunApkLifecycleImpl(const char* boot_path, const char* app_path, boo
     }
     ProgressClear();
     ProgressAppend("target: " + std::string(app_path));
+#if defined(__ANDROID__)
+    // 启动慢方法采样线程（每 200ms 记录当前 guest 方法；仅 profile 开启时输出）。
+    static std::atomic<bool> g_profiler_started{false};
+    if (!g_profiler_started.exchange(true, std::memory_order_relaxed)) {
+      std::thread([] {
+        for (;;) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(200));
+          if (!dexvm::runtime::GuestMethodProfileEnabled()) continue;
+          dexvm::runtime::VMethod* m = dexvm::runtime::CurrentGuestMethod();
+          if (m == nullptr || m->declaring == nullptr) continue;
+          __android_log_print(ANDROID_LOG_INFO, "DexVmProfile", "%s.%s",
+                              m->declaring->descriptor.c_str(), m->name.c_str());
+        }
+      }).detach();
+    }
+#endif
     // 桥轨 mirror 复位：同进程多次打开 app 时，上一会话的 baseline 会让本次
     // 首帧 present 变成 patch（宿主新物化器无基线 -> 拉不到全量树）。
     dexvm::bridge::ResetUiBridgeProtocol();
@@ -430,12 +453,22 @@ std::string RunApkLifecycleImpl(const char* boot_path, const char* app_path, boo
                                     const dexvm::framework::PhaseRunner& run_phase,
                                     std::string* error) {
       guest_activity = activity;
-      return dexvm::framework::RunFirstFramePipeline(state, activity, &ui, kGuestWindowWidth,
-                                                     kGuestWindowHeight, run_phase, error);
+      bool ok = dexvm::framework::RunFirstFramePipeline(state, activity, &ui, kGuestWindowWidth,
+                                                        kGuestWindowHeight, run_phase, error);
+      // 首帧已出现：恢复网络。启动期的离线快失败只服务于“先出基础界面”；
+      // 会话 tick 里 app 的重试/配置请求正常走宿主网络。
+      dexvm::runtime::SetBootNetworkOffline(false);
+      dexvm::runtime::SetGuestMethodProfile(false);
+      return ok;
     });
     // 生命周期全链 + 首帧：main GuestTask 上跑（semface Context 单例装配 +
     // 协程调度器；Thread/Handler/Looper 语义前提）
     {
+      // 首帧前离线启动（仅常驻会话）：MainActivity.onCreate 里串行的配置/
+      // 埋点请求立即失败，直接走本地默认配置和骨架，避免 30s+ 网络等待；
+      // 首帧钩子成功后恢复。
+      dexvm::runtime::SetBootNetworkOffline(keep_alive);
+      dexvm::runtime::SetGuestMethodProfile(keep_alive);
       LifecycleGuestRun run;
       run.state = &state;
       run.linker = &linker;
@@ -496,6 +529,9 @@ std::string RunApkLifecycleImpl(const char* boot_path, const char* app_path, boo
     result = out;
   } while (false);
 
+  // 异常/提前退出兜底：不让离线/采样开关泄漏到后续会话或宿主线程。
+  dexvm::runtime::SetBootNetworkOffline(false);
+  dexvm::runtime::SetGuestMethodProfile(false);
   return result;
 }
 
@@ -511,6 +547,14 @@ jstring NativeRunApkLifecycle(JNIEnv* env, jclass, jstring runtime_dex_path, jst
 // 常驻会话入口：首帧后保持 VM 存活（消息泵/增量出画/点击回灌），宿主
 // nativeSessionStop 后返回最终 phase 报告（尾部 report 与 one-shot 同形）。
 jstring NativeRunApkSession(JNIEnv* env, jclass, jstring runtime_dex_path, jstring apk_path) {
+  // 宿主 JavaVM 交接（native -> 宿主 Java 字体桥；core/host_java.h）。
+  JavaVM* host_vm = nullptr;
+  env->functions->GetJavaVM(env, &host_vm);
+  dexvm::runtime::SetHostJavaVM(reinterpret_cast<void*>(host_vm));
+#if defined(__ANDROID__)
+  __android_log_print(ANDROID_LOG_INFO, "DexVmFont", "NativeRunApkSession host vm=%p",
+                      reinterpret_cast<void*>(host_vm));
+#endif
   const char* boot_path = env->functions->GetStringUTFChars(env, runtime_dex_path, nullptr);
   const char* app_path = env->functions->GetStringUTFChars(env, apk_path, nullptr);
   std::string result = RunApkLifecycleImpl(boot_path, app_path, true);
@@ -548,6 +592,52 @@ jbyteArray NativeSessionPollFrames(JNIEnv* env, jclass) {
   env->functions->SetByteArrayRegion(env, arr, 0, static_cast<jsize>(blob.size()),
                                      reinterpret_cast<const jbyte*>(blob.data()));
   return arr;
+}
+
+// ---- 宿主字体 worker 通道（com.dexvm.host.FontBridge；Java->native 方向）----
+jlong NativeFontNextRequest(JNIEnv*, jclass) {
+  return static_cast<jlong>(dexvm::runtime::HostFontNextRequest());
+}
+
+jint NativeFontOp(JNIEnv*, jclass, jlong id) {
+  return dexvm::runtime::HostFontOp(static_cast<uint64_t>(id));
+}
+
+jint NativeFontStyle(JNIEnv*, jclass, jlong id) {
+  return dexvm::runtime::HostFontStyle(static_cast<uint64_t>(id));
+}
+
+jfloat NativeFontSize(JNIEnv*, jclass, jlong id) {
+  return dexvm::runtime::HostFontSize(static_cast<uint64_t>(id));
+}
+
+jlong NativeFontBase(JNIEnv*, jclass, jlong id) {
+  return static_cast<jlong>(dexvm::runtime::HostFontBase(static_cast<uint64_t>(id)));
+}
+
+jstring NativeFontString(JNIEnv* env, jclass, jlong id) {
+  std::string s = dexvm::runtime::HostFontString(static_cast<uint64_t>(id));
+  return env->functions->NewStringUTF(env, s.c_str());
+}
+
+jstring NativeFontText(JNIEnv* env, jclass, jlong id) {
+  std::u16string s = dexvm::runtime::HostFontText(static_cast<uint64_t>(id));
+  return env->functions->NewString(env, reinterpret_cast<const jchar*>(s.data()),
+                                   static_cast<jsize>(s.size()));
+}
+
+void NativeFontComplete(JNIEnv* env, jclass, jlong id, jlong handle, jfloat width,
+                        jintArray metrics, jboolean metrics_ok) {
+  int32_t out[5] = {0, 0, 0, 0, 0};
+  bool ok = metrics_ok == JNI_TRUE && metrics != nullptr;
+  if (ok && env->functions->GetArrayLength(env, metrics) >= 5) {
+    jint vals[5] = {0, 0, 0, 0, 0};
+    env->functions->GetIntArrayRegion(env, metrics, 0, 5, vals);
+    for (int i = 0; i < 5; i++) out[i] = vals[i];
+  } else {
+    ok = false;
+  }
+  dexvm::runtime::HostFontComplete(static_cast<uint64_t>(id), handle, width, out, ok);
 }
 
 // ---- AOSP starting window（首帧前预览层）----
@@ -1884,7 +1974,7 @@ void Complete(dexvm::runtime::VMState& state, dexvm::runtime::ClassLinker* linke
   // android.content.pm.ApplicationInfo（String 身份/路径面，docs 29.2①；
   // targetSdkVersion = manifest 真实 targetSdk 投影；metaData = <meta-data> 投影槽；
   // flags = manifest 投影位（AOSP ApplicationInfo.FLAG_* 同值））
-  VClass* ai = make("Landroid/content/pm/ApplicationInfo;", object, 88);
+  VClass* ai = make("Landroid/content/pm/ApplicationInfo;", object, 112);
   if (ai != nullptr) {
     AddField(ai, "packageName", "Ljava/lang/String;", 0);
     AddField(ai, "sourceDir", "Ljava/lang/String;", 8);
@@ -1897,6 +1987,12 @@ void Complete(dexvm::runtime::VMState& state, dexvm::runtime::ClassLinker* linke
     AddField(ai, "minSdkVersion", "I", 64);
     AddField(ai, "uid", "I", 72);
     AddField(ai, "labelRes", "I", 80);
+    // React Native SoLoader 初始化读 split 路径数组（单 APK 安装为 null；
+    // 字段缺失会抛 NoSuchFieldError，中断 RN 引擎预初始化）。
+    AddField(ai, "splitSourceDirs", "[Ljava/lang/String;", 88);
+    AddField(ai, "splitPublicSourceDirs", "[Ljava/lang/String;", 96);
+    AddField(ai, "splitNames", "[Ljava/lang/String;", 104);
+    AddField(ai, "sharedLibraryFiles", "[Ljava/lang/String;", 112);
     AddIntrinsic(ai, "loadLabel", {"Landroid/content/pm/PackageManager;"},
                  "Ljava/lang/CharSequence;", kPublic, I_LoadLabel);
     AddIntrinsic(ai, "loadIcon", {"Landroid/content/pm/PackageManager;"},
@@ -4862,6 +4958,14 @@ const JNINativeMethod kMethods[] = {
     {"nativeRunApkSession", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(NativeRunApkSession)},
     {"nativeSessionPollFrames", "()[B", reinterpret_cast<void*>(NativeSessionPollFrames)},
+    {"nativeFontNextRequest", "()J", reinterpret_cast<void*>(NativeFontNextRequest)},
+    {"nativeFontOp", "(J)I", reinterpret_cast<void*>(NativeFontOp)},
+    {"nativeFontStyle", "(J)I", reinterpret_cast<void*>(NativeFontStyle)},
+    {"nativeFontSize", "(J)F", reinterpret_cast<void*>(NativeFontSize)},
+    {"nativeFontBase", "(J)J", reinterpret_cast<void*>(NativeFontBase)},
+    {"nativeFontString", "(J)Ljava/lang/String;", reinterpret_cast<void*>(NativeFontString)},
+    {"nativeFontText", "(J)Ljava/lang/String;", reinterpret_cast<void*>(NativeFontText)},
+    {"nativeFontComplete", "(JJF[IZ)V", reinterpret_cast<void*>(NativeFontComplete)},
     {"nativeGetStartingWindow", "()[B",
      reinterpret_cast<void*>(NativeGetStartingWindow)},
     {"nativeSessionStop", "()V", reinterpret_cast<void*>(NativeSessionStop)},
