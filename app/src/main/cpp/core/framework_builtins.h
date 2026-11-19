@@ -93,6 +93,15 @@ const ResourceSeam* GetResourceSeam();
 VObject* AllocResources(VMState& state, const std::string& apk_path,
                         const std::string& package_name);
 
+// Drawable 资源面：Resources.getDrawable 返回的 drawable（含 XML vector 占位）
+// 在 VM 侧登记 resource id；桥接快照对 ImageView.mDrawable 反查该 id，宿主用
+// guest APK 的真实资源表装载绘制（图标/Drawable 物化的通用通路）。
+// 登记时 Pin（侧表键 = GC 根），RegisterRenderPipeline 每 VM 清表。
+void RegisterGuestDrawableResource(VMState& state, VObject* drawable, uint32_t res_id,
+                                   bool include_state_refs);
+uint32_t ResolveGuestDrawableResource(VObject* drawable);
+void ResetGuestDrawableResources();
+
 // Context.getResources() 单例落点（AOSP app Resources；semface/宿主测试装配）。
 void SetContextResources(VObject* resources);
 

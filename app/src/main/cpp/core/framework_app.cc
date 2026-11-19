@@ -20,7 +20,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <new>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -5145,6 +5147,88 @@ Value ResGetValue(VMState& state, VObject* self, const Value* args, size_t n, bo
   return r;
 }
 
+// VectorDrawableCompat.mutate 覆写：桥接占位 drawable 的 state 对象已登记
+// resId；mutate 会深度复制 state，克隆后反查丢失（底部导航图标即此路径）。
+// mutate 返回 self（占位无可变像素状态），保持 state 身份稳定。
+Value VectorDrawableMutateSelf(VMState& state, VObject* self, const Value* args, size_t n,
+                               bool* ok) {
+  (void)state;
+  (void)args;
+  (void)n;
+  *ok = true;
+  Value r{};
+  r.ref = self;
+  return r;
+}
+
+// ---- Drawable 资源登记（桥接快照按 ImageView.mDrawable 反查 resId）----
+namespace {
+std::mutex g_drawable_res_mu;
+std::map<ObjHeader*, uint32_t> g_drawable_res;
+
+void RegisterDrawableOne(VMState& state, ObjHeader* o, uint32_t res_id) {
+  if (o == nullptr) return;
+  std::lock_guard<std::mutex> lk(g_drawable_res_mu);
+  if (g_drawable_res.count(o) != 0) return;
+  g_drawable_res.emplace(o, res_id);
+  if (state.heap != nullptr) state.heap->Pin(o);  // 侧表键：GC 根
+}
+
+void RegisterDrawableRefs(VMState& state, ObjHeader* o, uint32_t res_id, int depth) {
+  RegisterDrawableOne(state, o, res_id);
+  if (o == nullptr || o->klass == nullptr || depth >= 1) return;
+  VObject* v = reinterpret_cast<VObject*>(o);
+  uint8_t* data = v->field_data();
+  for (auto& f : o->klass->instance_fields) {
+    if (f.type_descriptor.empty() || f.type_descriptor[0] != 'L') continue;
+    ObjHeader* r = nullptr;
+    std::memcpy(&r, data + f.offset, sizeof(r));
+    if (r != nullptr) RegisterDrawableOne(state, r, res_id);
+  }
+}
+}  // namespace
+
+void RegisterGuestDrawableResource(VMState& state, VObject* drawable, uint32_t res_id,
+                                   bool include_state_refs) {
+  if (drawable == nullptr || res_id == 0) return;
+  if (include_state_refs) {
+    RegisterDrawableRefs(state, reinterpret_cast<ObjHeader*>(drawable), res_id, 0);
+  } else {
+    RegisterDrawableOne(state, reinterpret_cast<ObjHeader*>(drawable), res_id);
+  }
+}
+
+uint32_t ResolveGuestDrawableResource(VObject* drawable) {
+  if (drawable == nullptr) return 0;
+  std::lock_guard<std::mutex> lk(g_drawable_res_mu);
+  std::set<ObjHeader*> seen;
+  std::vector<ObjHeader*> queue{reinterpret_cast<ObjHeader*>(drawable)};
+  for (int depth = 0; depth < 4 && !queue.empty(); depth++) {
+    std::vector<ObjHeader*> next;
+    for (ObjHeader* o : queue) {
+      if (o == nullptr || !seen.insert(o).second) continue;
+      auto it = g_drawable_res.find(o);
+      if (it != g_drawable_res.end()) return it->second;
+      if (o->klass == nullptr) continue;
+      VObject* v = reinterpret_cast<VObject*>(o);
+      uint8_t* data = v->field_data();
+      for (auto& f : o->klass->instance_fields) {
+        if (f.type_descriptor.empty() || f.type_descriptor[0] != 'L') continue;
+        ObjHeader* r = nullptr;
+        std::memcpy(&r, data + f.offset, sizeof(r));
+        if (r != nullptr) next.push_back(r);
+      }
+    }
+    queue.swap(next);
+  }
+  return 0;
+}
+
+void ResetGuestDrawableResources() {
+  std::lock_guard<std::mutex> lk(g_drawable_res_mu);
+  g_drawable_res.clear();
+}
+
 // Resources.getDrawable(int)：资源为颜色值 -> ColorDrawable（真颜色可绘制）；
 // 其它类型（文件位图/XML drawable）桥接图元面后置 -> null（AOSP 无资源同形）。
 Value ResGetDrawable(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
@@ -5182,6 +5266,12 @@ Value ResGetDrawable(VMState& state, VObject* self, const Value* args, size_t n,
         state.ClearException();
         continue;
       }
+      // mutate() 不得复制 state（否则 drawable→resId 侧表在克隆后失效）。
+      for (auto& m : vd->virtual_methods) {
+        if (m.name == "mutate" && m.param_types.empty()) {
+          m.native_fn = ToIntrinsicSlot(VectorDrawableMutateSelf);
+        }
+      }
       VObject* obj = state.linker->AllocObject(vd);
       if (obj == nullptr) continue;
       bool ctor_ok = false;
@@ -5196,6 +5286,10 @@ Value ResGetDrawable(VMState& state, VObject* self, const Value* args, size_t n,
       }
       if (ctor_ok) {
         r.ref = reinterpret_cast<ObjHeader*>(obj);
+        // 占位 drawable 本身没有 XML 内容；登记 resId 供桥接快照转交宿主
+        // 用 guest APK 真实资源表装载（图标等 XML drawable 出画通路）。
+        // 连状态对象一起登记：调用方常 getConstantState().newDrawable() 克隆。
+        RegisterGuestDrawableResource(state, obj, static_cast<uint32_t>(args[0].i), true);
         return r;
       }
     }
@@ -5215,7 +5309,10 @@ Value ResGetDrawable(VMState& state, VObject* self, const Value* args, size_t n,
     cargs[0].ref = cd;
     cargs[1].i = static_cast<int32_t>(data);
     Value ret{};
-    if (InvokeMethod(state, &m, cargs, 2, &ret)) r.ref = reinterpret_cast<ObjHeader*>(cd);
+    if (InvokeMethod(state, &m, cargs, 2, &ret)) {
+      r.ref = reinterpret_cast<ObjHeader*>(cd);
+      RegisterGuestDrawableResource(state, cd, static_cast<uint32_t>(args[0].i), false);
+    }
     break;
   }
   return r;

@@ -77,9 +77,13 @@ namespace {
 
 constexpr const char* kClassName = "com/dexvm/host/NativeBridge";
 
-// 首帧窗口（M4.2 固定 guest 窗口；窗口尺寸链后置）。
+// 首帧窗口（M4.2 固定 guest 窗口；窗口尺寸链后置）。默认 540x960；
+// 宿主可按内容区宽高比在启动前通过 nativeSetGuestWindowSize 调整高度，
+// 使物化画面的 x/y 缩放系数一致（避免文字被纵向拉伸）。
 constexpr int32_t kGuestWindowWidth = 540;
 constexpr int32_t kGuestWindowHeight = 960;
+std::atomic<int32_t> g_guest_window_width{kGuestWindowWidth};
+std::atomic<int32_t> g_guest_window_height{kGuestWindowHeight};
 
 // ---- 运行进度日志（设备 UI 实时显示启动/考卷日志；线程安全快照）----
 std::mutex g_progress_mutex;
@@ -449,12 +453,14 @@ std::string RunApkLifecycleImpl(const char* boot_path, const char* app_path, boo
     // M4.2：首帧管线钩子（onPostResume 后 addView→traversal→submit→present→mark）
     dexvm::bridge::UIBridge ui;
     dexvm::runtime::VObject* guest_activity = nullptr;  // 会话 loop 的内容根来源
+    const int32_t guest_w = g_guest_window_width.load(std::memory_order_relaxed);
+    const int32_t guest_h = g_guest_window_height.load(std::memory_order_relaxed);
     driver.set_first_frame_hook([&](dexvm::runtime::VObject* activity,
                                     const dexvm::framework::PhaseRunner& run_phase,
                                     std::string* error) {
       guest_activity = activity;
-      bool ok = dexvm::framework::RunFirstFramePipeline(state, activity, &ui, kGuestWindowWidth,
-                                                        kGuestWindowHeight, run_phase, error);
+      bool ok = dexvm::framework::RunFirstFramePipeline(state, activity, &ui, guest_w, guest_h,
+                                                        run_phase, error);
       // 首帧已出现：恢复网络。启动期的离线快失败只服务于“先出基础界面”；
       // 会话 tick 里 app 的重试/配置请求正常走宿主网络。
       dexvm::runtime::SetBootNetworkOffline(false);
@@ -481,8 +487,8 @@ std::string RunApkLifecycleImpl(const char* boot_path, const char* app_path, boo
       run.keep_alive = keep_alive;
       run.ui = &ui;
       run.activity_slot = &guest_activity;
-      run.width = kGuestWindowWidth;
-      run.height = kGuestWindowHeight;
+      run.width = guest_w;
+      run.height = guest_h;
       std::string guest_err;
       if (!RunApkLifecycleGuest(&run, &guest_err)) {
         result = "FAIL guest runtime: " + guest_err;
@@ -690,6 +696,15 @@ void NativeSessionStop(JNIEnv*, jclass) {
 jboolean NativeSessionIsRunning(JNIEnv*, jclass) {
   std::lock_guard<std::mutex> lk(g_session_state.mu);
   return g_session_state.active ? JNI_TRUE : JNI_FALSE;
+}
+
+// 会话窗口逻辑尺寸（宿主按内容区宽高比设定；首帧前/会话启动前调用）。
+// 不改变 guest 密度（2.0），只调整窗口高度，使宿主物化画面等比缩放。
+void NativeSetGuestWindowSize(JNIEnv*, jclass, jint width, jint height) {
+  int32_t w = width < 320 ? 320 : (width > 2048 ? 2048 : width);
+  int32_t h = height < 480 ? 480 : (height > 4096 ? 4096 : height);
+  g_guest_window_width.store(w, std::memory_order_relaxed);
+  g_guest_window_height.store(h, std::memory_order_relaxed);
 }
 
 // 调试面：guest 方法入口 trace（逗号分隔类 descriptor 子串；空 = 关闭）。
@@ -4972,6 +4987,8 @@ const JNINativeMethod kMethods[] = {
     {"nativeSessionIsRunning", "()Z", reinterpret_cast<void*>(NativeSessionIsRunning)},
     {"nativeSetGuestTrace", "(Ljava/lang/String;)V",
      reinterpret_cast<void*>(NativeSetGuestTrace)},
+    {"nativeSetGuestWindowSize", "(II)V",
+     reinterpret_cast<void*>(NativeSetGuestWindowSize)},
     {"nativeTlsTake", "()[B", reinterpret_cast<void*>(NativeTlsTake)},
     {"nativeTlsReply", "(JIJ[B)V", reinterpret_cast<void*>(NativeTlsReply)},
     {"nativeSensorSetList", "(Ljava/lang/String;)V",

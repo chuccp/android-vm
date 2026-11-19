@@ -151,8 +151,14 @@ public class TypedArray {
     }
 
     public TypedValue peekValue(int index) {
+        // AOSP：合法下标恒返回 TypedValue；属性未在主题/样式链解析到值时
+        // type=TYPE_NULL（不是 null）。ConstraintLayout.LayoutParams 等按
+        // “peekValue(...).type” 读取，返回 null 会 NPE（generateLayoutParams
+        // 失败后退化 LinearLayout$LayoutParams，约束属性全部丢失）。
+        if (index < 0 || index >= this.mLength) return null;
         TypedValue tv = new TypedValue();
-        return getValue(index, tv) ? tv : null;
+        getValue(index, tv);
+        return tv;
     }
 
     public CharSequence[] getTextArray(int index) {

@@ -28,6 +28,8 @@
 // 登记（viewId -> guest listener 注入面，bridge/ui_bridge_input.h 契约）。
 namespace dexvm::runtime {
 void ClearGuestLayoutRequested(VObject* v);
+// Drawable 资源侧表（core/framework_app.cc）：每 VM 引导清表。
+void ResetGuestDrawableResources();
 Value ViewSetOnClickListener
 (VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 // 宿主真字体度量桥（core/framework_font.cc；false=不可用回落网格）
@@ -2128,6 +2130,7 @@ int32_t GetSpecMode(int32_t spec) { return spec & ~0x3fffffff; }
 
 void RegisterRenderPipeline(ClassLinker* linker) {
   if (linker == nullptr) return;
+  dexvm::runtime::ResetGuestDrawableResources();
   VClass* view = linker->FindClass("Landroid/view/View;");
   VClass* view_group = linker->FindClass("Landroid/view/ViewGroup;");
   VClass* text_view = linker->FindClass("Landroid/widget/TextView;");

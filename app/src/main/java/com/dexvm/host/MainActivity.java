@@ -102,6 +102,10 @@ public class MainActivity extends Activity {
     private Runnable sessionPoll;
     // AOSP starting window（VM 解析，宿主显示；首帧/切换后不再应用）
     private boolean startingWindowApplied = false;
+    // guest 逻辑窗口尺寸（宽固定 540；高度按宿主内容区宽高比在启动前确定，
+    // 保证 540xh -> 内容区的 x/y 缩放系数一致，文字不再纵向拉伸）。
+    private int guestWinW = 540;
+    private int guestWinH = 960;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -620,8 +624,6 @@ public class MainActivity extends Activity {
         sessionFramesApplied = 0;
         running = true;
         showRunning(label, "启动中…");
-        // 启动期先给默认开屏（本地图标，无网络依赖）；首帧到达后替换。
-        showSplashPreview(app);
         NativeBridge.nativeClearRunProgress();
         runLogView.setText("");
         startProgressPoll();
@@ -637,6 +639,55 @@ public class MainActivity extends Activity {
             NotificationBridge.start(this);
         } catch (Throwable ignored) {
         }
+        // 等 guestSlot 尺寸收敛后按内容区宽高比确定 guest 逻辑窗口高度：
+        // 固定 540x960 铺到 4xx x 9xx 的内容区会按 x/y 独立缩放，字体被
+        // 纵向拉长。窗口比例 = 内容区比例后才能等比铺满。
+        awaitGuestSlotThenStart(app, apkPath, label, 0, -1, -1);
+    }
+
+    /**
+     * 等待 guestSlot 连续两帧尺寸一致（布局收敛；showRunning/隐藏日志卡片会触发
+     * 多次布局），再启动 VM，避免用临时尺寸算出的窗口比例导致内容缩放/偏移。
+     */
+    private void awaitGuestSlotThenStart(final AppEntry app, final String apkPath,
+                                         final String label, final int attempt,
+                                         final int lastW, final int lastH) {
+        if (guestSlot == null) return;
+        guestSlot.post(() -> {
+            int w = guestSlot.getWidth();
+            int h = guestSlot.getHeight();
+            if (w > 0 && h > 0 && w == lastW && h == lastH) {
+                guestWinW = 540;
+                int gh = Math.round(guestWinW * (float) h / (float) w);
+                if (gh < 960) gh = 960;
+                if (gh > 1400) gh = 1400;
+                guestWinH = gh;
+                try {
+                    NativeBridge.nativeSetGuestWindowSize(guestWinW, guestWinH);
+                } catch (Throwable ignored) {
+                }
+                // 启动期先给默认开屏（本地图标，无网络依赖）；首帧到达后替换。
+                showSplashPreview(app);
+                startGuestSession(apkPath, label);
+                return;
+            }
+            if (attempt < 30) {
+                awaitGuestSlotThenStart(app, apkPath, label, attempt + 1, w, h);
+            } else {
+                // 兜底：按当前尺寸启动（极端布局异常时不永久卡住）。
+                guestWinW = 540;
+                guestWinH = 960;
+                try {
+                    NativeBridge.nativeSetGuestWindowSize(guestWinW, guestWinH);
+                } catch (Throwable ignored) {
+                }
+                showSplashPreview(app);
+                startGuestSession(apkPath, label);
+            }
+        });
+    }
+
+    private void startGuestSession(final String apkPath, final String label) {
         new Thread(() -> {
             String report;
             try {
@@ -773,15 +824,22 @@ public class MainActivity extends Activity {
         guestSlot.addView(box, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
-        box.addView(content, new FrameLayout.LayoutParams(540, 960));
+        box.addView(content, new FrameLayout.LayoutParams(guestWinW, guestWinH));
         box.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             int w = v.getWidth();
             int h = v.getHeight();
             if (w <= 0 || h <= 0) return;
             content.setPivotX(0f);
             content.setPivotY(0f);
-            content.setScaleX(w / 540f);
-            content.setScaleY(h / 960f);
+            // guest 窗口比例已按内容区确定，x/y 缩放基本一致；仍取统一比例
+            // 兜底（不允许任一轴单独拉伸文字）。
+            float sx = w / (float) guestWinW;
+            float sy = h / (float) guestWinH;
+            float s = Math.min(sx, sy);
+            content.setScaleX(s);
+            content.setScaleY(s);
+            content.setTranslationX((w - guestWinW * s) * 0.5f);
+            content.setTranslationY((h - guestWinH * s) * 0.5f);
         });
     }
 

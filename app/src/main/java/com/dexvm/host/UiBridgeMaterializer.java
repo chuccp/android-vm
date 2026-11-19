@@ -167,6 +167,8 @@ public final class UiBridgeMaterializer {
     private int appliedRevision = 0;
     private int dirtyCount = 0;
     private String apkPath;
+    // guest APK 资源 drawable 装载（XML vector / bitmap；ImageDrawable 物化）。
+    private ApkDrawableLoader drawableLoader;
     private final Map<Integer, String> appliedVideoPath = new HashMap<>();
 
     public UiBridgeMaterializer(Context context) {
@@ -181,6 +183,7 @@ public final class UiBridgeMaterializer {
     /** 目标 APK 路径（VideoView 的 android.resource:// 源从 APK 抽包真播放）。 */
     public void setApkPath(String path) {
         this.apkPath = path;
+        this.drawableLoader = path != null ? new ApkDrawableLoader(context, path) : null;
     }
 
     public int appliedRevision() { return appliedRevision; }
@@ -683,11 +686,24 @@ public final class UiBridgeMaterializer {
         }
         if (v instanceof ImageView) {
             Prop img = node.prop(PROP_IMAGE_BYTES);
+            Bitmap bmp = null;
             if (img != null && img.bytes != null && img.bytes.length > 0) {
-                Bitmap bmp = BitmapFactory.decodeByteArray(img.bytes, 0, img.bytes.length);
-                if (bmp != null) {
-                    ((ImageView) v).setImageDrawable(new BitmapDrawable(context.getResources(), bmp));
-                    ((ImageView) v).setScaleType(ImageView.ScaleType.FIT_CENTER);
+                bmp = BitmapFactory.decodeByteArray(img.bytes, 0, img.bytes.length);
+            }
+            if (bmp != null) {
+                ((ImageView) v).setImageDrawable(new BitmapDrawable(context.getResources(), bmp));
+                ((ImageView) v).setScaleType(ImageView.ScaleType.FIT_CENTER);
+            } else {
+                // XML vector / 非位图 drawable：按 guest resId 用 guest APK 的
+                // 真实资源表装载宿主 Drawable（图标/层列表等通用出画）。
+                Prop ir = node.prop(PROP_IMAGE_RESOURCE);
+                int resId = ir != null ? ir.asInt() : 0;
+                if (resId != 0 && drawableLoader != null) {
+                    Drawable d = drawableLoader.load(resId);
+                    if (d != null) {
+                        ((ImageView) v).setImageDrawable(d);
+                        ((ImageView) v).setScaleType(ImageView.ScaleType.FIT_CENTER);
+                    }
                 }
             }
         }

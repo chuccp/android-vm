@@ -92,6 +92,9 @@ public final class NativeBridge {
     /** 调试：guest 方法入口 trace（类 descriptor 子串，逗号分隔；空串关闭）。 */
     public static native void nativeSetGuestTrace(String patterns);
 
+    /** 会话窗口逻辑尺寸（启动前设置；宽度通常 540，高度按宿主内容区比例）。 */
+    public static native void nativeSetGuestWindowSize(int width, int height);
+
     /**
      * UI 桥接 P1：取桥轨 View 树 envelope（ViewSnapshot/ViewPatch + draw 命令流，
      * 小端线格式见 bridge/ui_bridge_protocol.h）。宿主物化器（UiBridgeMaterializer）

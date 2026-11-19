@@ -860,16 +860,43 @@ bool LoadImageResourceBytes(VMState& state, uint32_t res_id, std::vector<uint8_t
 
 // ---- guest View 树 -> 快照 ----
 
+namespace {
+// object_id 必须随 guest View 身份稳定：位置序 id 在树结构变化（插入/删除
+// 子树、RecyclerView 复用 item）时整体错位，DiffSnapshots 会把"新节点"
+// 误判成"旧节点属性更新"，宿主镜像因此丢失新子树或保留错误类/父级
+// （底部导航/空视图子项不物化、"布局有些乱"的根因）。指针哈希在同一
+// 快照内用 map 兜底防碰撞。
+uint32_t StableViewId(dexvm::runtime::VObject* view) {
+  uint64_t h = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(view)) >> 4;
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccdULL;
+  h ^= h >> 33;
+  h *= 0xc4ceb9fe1a85ec53ULL;
+  h ^= h >> 33;
+  uint32_t id = static_cast<uint32_t>(h);
+  if (id == 0u || id == 0xFFFFFFFFu) id ^= 0xa5a5a5a5u;
+  return id;
+}
+}  // namespace
+
 ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
   (void)state;
   ViewSnapshot snap;
   if (content_view == nullptr) return snap;
-  uint32_t next_id = 1;
+  std::map<uint32_t, VObject*> used_ids;
   std::function<void(VObject*, uint32_t, uint32_t)> walk =
       [&](VObject* view, uint32_t parent_id, uint32_t child_index) {
         if (view == nullptr) return;
         ViewNode nd;
-        nd.handle.object_id = next_id++;
+        uint32_t object_id = StableViewId(view);
+        auto clash = used_ids.find(object_id);
+        while (clash != used_ids.end() && clash->second != view) {
+          ++object_id;
+          if (object_id == 0u || object_id == 0xFFFFFFFFu) object_id = 1;
+          clash = used_ids.find(object_id);
+        }
+        used_ids.emplace(object_id, view);
+        nd.handle.object_id = object_id;
         nd.parent_id = parent_id;
         nd.child_index = child_index;
         nd.guest_view_id = ViewI(view, "mId");
@@ -921,6 +948,14 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
         add(kPropHasClickListener, PropValue::Bool(HasGuestClickListener(view)));
         add(kPropGravity, PropValue::Int(ViewI(view, "mGravity")));
         int32_t image_res = ViewI(view, "mImageResource");
+        ObjHeader* drawable = ViewRef(view, "mDrawable");
+        if (image_res == 0) {
+          // setImageDrawable 路径（AppCompatImageView + Resources.getDrawable）：
+          // drawable 侧表登记过 resId 时投影给宿主，由宿主持 guest APK 真实
+          // 资源表装载（XML vector 图标/位图 drawable 的通用出画通路）。
+          image_res = static_cast<int32_t>(dexvm::runtime::ResolveGuestDrawableResource(
+              reinterpret_cast<VObject*>(drawable)));
+        }
         add(kPropImageResource, PropValue::Int(image_res));
         if (image_res != 0) {
           std::vector<uint8_t> image_bytes;
