@@ -66,22 +66,25 @@ public class Gravity {
     }
 
     public static void apply(int gravity, int w, int h, Rect container, Rect outRect) {
-        int horiz = gravity & (LEFT | RIGHT | CENTER_HORIZONTAL);
-        int vert = gravity & (TOP | BOTTOM | CENTER_VERTICAL);
+        // Gravity 是位域组合：TOP(0x30)/BOTTOM(0x50) 都包含 0x10 位，
+        // 必须先按轴掩码再与具体常量比较。之前 TOP 被判成 CENTER_VERTICAL，
+        // CoordinatorLayout 的 AppBarLayout 因此垂直居中（y=352 根因）。
+        final int horiz = gravity & FILL_HORIZONTAL;
+        final int vert = gravity & FILL_VERTICAL;
         int l = container.left;
         int t = container.top;
         int x;
-        if ((horiz & CENTER_HORIZONTAL) != 0) {
+        if (horiz == CENTER_HORIZONTAL) {
             x = l + ((container.width() - w) / 2);
-        } else if ((horiz & RIGHT) != 0) {
+        } else if (horiz == RIGHT) {
             x = container.right - w;
         } else {
             x = l;
         }
         int y;
-        if ((vert & CENTER_VERTICAL) != 0) {
+        if (vert == CENTER_VERTICAL) {
             y = t + ((container.height() - h) / 2);
-        } else if ((vert & BOTTOM) != 0) {
+        } else if (vert == BOTTOM) {
             y = container.bottom - h;
         } else {
             y = t;
@@ -104,10 +107,10 @@ public class Gravity {
     }
 
     public static boolean isHorizontal(int gravity) {
-        return (gravity & (LEFT | RIGHT | CENTER_HORIZONTAL)) != 0;
+        return (gravity & FILL_HORIZONTAL) != 0;
     }
 
     public static boolean isVertical(int gravity) {
-        return (gravity & (TOP | BOTTOM | CENTER_VERTICAL)) != 0;
+        return (gravity & FILL_VERTICAL) != 0;
     }
 }

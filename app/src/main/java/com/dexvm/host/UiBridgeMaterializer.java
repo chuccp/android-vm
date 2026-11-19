@@ -601,13 +601,11 @@ public final class UiBridgeMaterializer {
         if (absolute && h < 8 && child instanceof TextView) absolute = false;
         ViewGroup.MarginLayoutParams lp;
         if (absolute) {
-            // guest traversal 已产出绝对几何：沿用 guest 布局（父子相对位）。
-            Prop pbounds = parentNode != null ? parentNode.prop(PROP_BOUNDS) : null;
-            int originX = pbounds != null ? pbounds.rect[0] : 0;
-            int originY = pbounds != null ? pbounds.rect[1] : 0;
+            // guest bounds 为父容器相对坐标（AOSP View.mLeft/mTop 口径）：
+            // 直接作为宿主的 left/top margin，不再减父原点。
             lp = new ViewGroup.MarginLayoutParams(w, h);
-            lp.leftMargin = left - originX;
-            lp.topMargin = top - originY;
+            lp.leftMargin = left;
+            lp.topMargin = top;
             absoluteViews.put(child, Boolean.TRUE);
         } else {
             // traversal 未收敛（节点几何为空）：布局归宿主。按 guest
@@ -870,12 +868,9 @@ public final class UiBridgeMaterializer {
                         int w = bounds.rect[2] - bounds.rect[0];
                         int h = bounds.rect[3] - bounds.rect[1];
                         if (w > 0 && h > 0) {
-                            Node parentNode = nodes.get(node.parentId);
-                            Prop pbounds = parentNode != null ? parentNode.prop(PROP_BOUNDS) : null;
-                            int originX = pbounds != null ? pbounds.rect[0] : 0;
-                            int originY = pbounds != null ? pbounds.rect[1] : 0;
-                            lp.leftMargin = bounds.rect[0] - originX;
-                            lp.topMargin = bounds.rect[1] - originY;
+                            // 父容器相对坐标：bounds.left/top 即宿主 margin。
+                            lp.leftMargin = bounds.rect[0];
+                            lp.topMargin = bounds.rect[1];
                             lp.width = w;
                             lp.height = h;
                             absoluteViews.put(v, Boolean.TRUE);

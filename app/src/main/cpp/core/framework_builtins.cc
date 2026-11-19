@@ -2349,8 +2349,18 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                          auto* arr = reinterpret_cast<VArray*>(a[0].ref);
                          if (arr->length < 2) return Value{};
                          int32_t l = 0, t = 0;
-                         if (VField* f = FindInstanceField(self->klass, "mLeft")) l = GetIField(self, f->offset);
-                         if (VField* f = FindInstanceField(self->klass, "mTop")) t = GetIField(self, f->offset);
+                         for (VObject* v = self; v != nullptr;) {
+                           if (VField* f = FindInstanceField(v->klass, "mLeft")) {
+                             l += GetIField(v, f->offset);
+                           }
+                           if (VField* f = FindInstanceField(v->klass, "mTop")) {
+                             t += GetIField(v, f->offset);
+                           }
+                           VField* pf = FindInstanceField(v->klass, "mParent");
+                           v = pf != nullptr
+                                   ? reinterpret_cast<VObject*>(GetRefField(v, pf->offset))
+                                   : nullptr;
+                         }
                          std::memcpy(arr->data(), &l, sizeof(l));
                          std::memcpy(arr->data() + 8, &t, sizeof(t));
                          return Value{};
@@ -2363,8 +2373,18 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                          auto* arr = reinterpret_cast<VArray*>(a[0].ref);
                          if (arr->length < 2) return Value{};
                          int32_t l = 0, t = 0;
-                         if (VField* f = FindInstanceField(self->klass, "mLeft")) l = GetIField(self, f->offset);
-                         if (VField* f = FindInstanceField(self->klass, "mTop")) t = GetIField(self, f->offset);
+                         for (VObject* v = self; v != nullptr;) {
+                           if (VField* f = FindInstanceField(v->klass, "mLeft")) {
+                             l += GetIField(v, f->offset);
+                           }
+                           if (VField* f = FindInstanceField(v->klass, "mTop")) {
+                             t += GetIField(v, f->offset);
+                           }
+                           VField* pf = FindInstanceField(v->klass, "mParent");
+                           v = pf != nullptr
+                                   ? reinterpret_cast<VObject*>(GetRefField(v, pf->offset))
+                                   : nullptr;
+                         }
                          std::memcpy(arr->data(), &l, sizeof(l));
                          std::memcpy(arr->data() + 8, &t, sizeof(t));
                          return Value{};

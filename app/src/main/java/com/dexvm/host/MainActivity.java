@@ -314,15 +314,12 @@ public class MainActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
         guestLp.setMargins(dp(12), 0, dp(12), dp(10));
         content.addView(guestCardView, guestLp);
-        ScrollView vScroll = new ScrollView(this);
-        guestCardView.addView(vScroll);
-        android.widget.HorizontalScrollView hScroll =
-                new android.widget.HorizontalScrollView(this);
+        // guest 画面铺满内容区（540x960 逻辑窗口由 attachGuestRootScaled
+        // 缩放映射到宿主尺寸；不再用横竖滚动容器，避免只显示左上角）。
         guestSlot = new FrameLayout(this);
-        hScroll.addView(guestSlot, new android.widget.HorizontalScrollView.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        vScroll.addView(hScroll, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        guestCardView.addView(guestSlot, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
 
         // 启动日志面板（全屏；实时轮询 nativeGetRunProgress）
         logCardView = new FrameLayout(this);
@@ -374,7 +371,7 @@ public class MainActivity extends Activity {
         // starting window 内容由 VM 按 activity 主题解析（AOSP 口径），宿主在
         // 轮询到 nativeGetStartingWindow 后就位；先显示纯背景占位。
         splash.setBackgroundColor(0xFFFFFFFF);
-        guestSlot.addView(splash, new FrameLayout.LayoutParams(540, 960));
+        addScaledSurface(splash);
         startingWindowApplied = false;
         if (guestCardView != null) guestCardView.setVisibility(View.VISIBLE);
         if (logCardView != null) logCardView.setVisibility(View.GONE);
@@ -421,8 +418,7 @@ public class MainActivity extends Activity {
                 splash.addView(image, lp);
             }
         }
-        guestSlot.removeAllViews();
-        guestSlot.addView(splash, new FrameLayout.LayoutParams(540, 960));
+        addScaledSurface(splash);
         startingWindowApplied = true;
     }
 
@@ -755,11 +751,38 @@ public class MainActivity extends Activity {
     }
 
     private void replaceGuestRoot(View root) {
-        guestSlot.removeAllViews();
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(540, 960);
-        lp.gravity = Gravity.START | Gravity.TOP;
-        guestSlot.addView(root, lp);
+        attachGuestRootScaled(root);
+    }
+
+    /**
+     * guest 虚拟窗口 540x960 是逻辑坐标系；宿主内容区是真实像素。
+     * 用一个铺满的容器托管 guest 根，并在每次尺寸变化时把 540x960
+     * 的画面按 x/y 独立缩放铺满宿主（虚拟机显示面口径；命中测试由
+     * ViewGroup 的 child matrix 自动换算）。
+     */
+    private void attachGuestRootScaled(View root) {
+        addScaledSurface(root);
         bridgedView = root;
+    }
+
+    /** 把 540x960 逻辑画面（splash / starting window / guest 根）缩放铺满内容区。 */
+    private void addScaledSurface(View content) {
+        if (guestSlot == null) return;
+        guestSlot.removeAllViews();
+        FrameLayout box = new FrameLayout(this);
+        guestSlot.addView(box, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        box.addView(content, new FrameLayout.LayoutParams(540, 960));
+        box.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int w = v.getWidth();
+            int h = v.getHeight();
+            if (w <= 0 || h <= 0) return;
+            content.setPivotX(0f);
+            content.setPivotY(0f);
+            content.setScaleX(w / 540f);
+            content.setScaleY(h / 960f);
+        });
     }
 
     private void attachBridgeIfAvailable() {
@@ -772,10 +795,7 @@ public class MainActivity extends Activity {
             UiBridgeMaterializer.Result r = materializer.apply(envelope);
             bridgedView = r.root;
             if (bridgedView != null) {
-                guestSlot.removeAllViews();
-                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(540, 960);
-                lp.gravity = Gravity.START | Gravity.TOP;
-                guestSlot.addView(bridgedView, lp);
+                attachGuestRootScaled(bridgedView);
                 guestAvailable = true;
             }
         } catch (Throwable ignored) {

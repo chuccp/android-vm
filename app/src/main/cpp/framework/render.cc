@@ -752,6 +752,7 @@ Value LLOnLayout(VMState& state, VObject* self, const Value* args, size_t n, boo
   int32_t l = n >= 4 ? args[1].i : 0;
   int32_t t = n >= 4 ? args[2].i : 0;
   int32_t r = n >= 4 ? args[3].i : 0;
+  (void)t;  // 子项已按父容器相对坐标摆放（AOSP onLayout 口径）
   if (n < 4) {
     // 直接调用（非 super.onLayout）时按自身 bounds 推算
     r = ViewI(self, "mRight");
@@ -767,8 +768,9 @@ Value LLOnLayout(VMState& state, VObject* self, const Value* args, size_t n, boo
                       ViewI(self, "mPaddingBottom");
   if (content_h < 0) content_h = 0;
   bool horizontal = ViewI(self, "mOrientation") != 1;
-  int32_t y = t + pad_t;
-  int32_t x = l + pad_l;
+  // 相对父容器坐标口径（同 ContainerOnLayout）：paddings 起算，不加 l/t。
+  int32_t y = pad_t;
+  int32_t x = pad_l;
   VArray* children = ViewChildren(self);
   if (children == nullptr) return Value{};
   for (int32_t i = 0; i < children->length; i++) {
@@ -784,19 +786,19 @@ Value LLOnLayout(VMState& state, VObject* self, const Value* args, size_t n, boo
     if (horizontal) {
       // 主轴横向顺序摆放；交叉轴按子项 gravity 垂直居中/置底（AOSP 近似）。
       cx = x + lp.ml;
-      cy = t + pad_t + lp.mt;
+      cy = pad_t + lp.mt;
       int32_t child_gravity = 0;
       if (VObject* lpobj = reinterpret_cast<VObject*>(ViewRef(child, "mLayoutParams"))) {
         child_gravity = ViewI(lpobj, "gravity");
       }
-      if ((child_gravity & 0x10) != 0) {  // CENTER_VERTICAL
-        cy = t + pad_t + std::max(0, (content_h - ch) / 2);
+      if ((child_gravity & 0x70) == 0x10) {  // CENTER_VERTICAL
+        cy = pad_t + std::max(0, (content_h - ch) / 2);
       }
       x = cx + cw + lp.mr;
     } else {
-      int32_t cxx = l + pad_l + lp.ml;
-      if ((gravity & 0x1) != 0 && lp.width != -1) {  // Gravity.CENTER_HORIZONTAL
-        cxx = l + pad_l + std::max(0, (content_w - cw) / 2);
+      int32_t cxx = pad_l + lp.ml;
+      if ((gravity & 0x07) == 0x01 && lp.width != -1) {  // Gravity.CENTER_HORIZONTAL
+        cxx = pad_l + std::max(0, (content_w - cw) / 2);
       }
       cx = cxx;
       cy = y + lp.mt;
@@ -808,8 +810,8 @@ Value LLOnLayout(VMState& state, VObject* self, const Value* args, size_t n, boo
     largs[2].i = cx + cw;
     largs[3].i = cy + ch;
     if (!CallVirtual(state, child, "layout", {"I", "I", "I", "I"}, "V", largs, 4, nullptr)) {
-      *ok = false;
-      return Value{};
+      state.ClearException();  // 单子项失败不中止同容器其余子项
+      continue;
     }
   }
   return Value{};
@@ -891,17 +893,23 @@ Value ContainerOnLayout(VMState& state, VObject* self, const Value* args, size_t
     if (VObject* lpobj = reinterpret_cast<VObject*>(ViewRef(child, "mLayoutParams"))) {
       gravity = ViewI(lpobj, "gravity");
     }
-    int32_t x = l + pad_l + lp.ml;
-    int32_t cy = t + pad_t + lp.mt;
-    if ((gravity & 0x01) != 0) {  // CENTER_HORIZONTAL
-      x = l + pad_l + std::max(0, (customer_w - cw) / 2) + lp.ml;
-    } else if ((gravity & 0x05) == 0x05) {  // RIGHT
-      x = l + self_w - pad_r - lp.mr - cw;
+    // AOSP 坐标口径：子 View 的 layout(l,t) 是相对父容器的位置，
+    // onLayout 内的 l/t 本身不参与子项累加（父位置在 draw/location 时叠加）。
+    int32_t x = pad_l + lp.ml;
+    int32_t cy = pad_t + lp.mt;
+    // Gravity 是位域组合：必须先按轴掩码再比较（BOTTOM=0x50 含 0x10 位，
+    // RIGHT=0x05 含 0x01 位；直接测位会把 BOTTOM|RIGHT 误判成 CENTER）。
+    const int32_t hgrav = gravity & 0x07;   // Gravity.HORIZONTAL_GRAVITY_MASK
+    const int32_t vgrav = gravity & 0x70;  // Gravity.VERTICAL_GRAVITY_MASK
+    if (hgrav == 0x01) {  // CENTER_HORIZONTAL
+      x = pad_l + std::max(0, (customer_w - cw) / 2) + lp.ml;
+    } else if (hgrav == 0x05) {  // RIGHT
+      x = self_w - pad_r - lp.mr - cw;
     }
-    if ((gravity & 0x10) != 0) {  // CENTER_VERTICAL
-      cy = t + pad_t + std::max(0, (customer_h - ch) / 2) + lp.mt;
-    } else if ((gravity & 0x50) == 0x50) {  // BOTTOM
-      cy = t + self_h - pad_b - lp.mb - ch;
+    if (vgrav == 0x10) {  // CENTER_VERTICAL
+      cy = pad_t + std::max(0, (customer_h - ch) / 2) + lp.mt;
+    } else if (vgrav == 0x50) {  // BOTTOM
+      cy = self_h - pad_b - lp.mb - ch;
     }
     Value largs[4] = {};
     largs[0].i = x;
@@ -909,8 +917,21 @@ Value ContainerOnLayout(VMState& state, VObject* self, const Value* args, size_t
     largs[2].i = x + cw;
     largs[3].i = cy + ch;
     if (!CallVirtual(state, child, "layout", {"I", "I", "I", "I"}, "V", largs, 4, nullptr)) {
-      *ok = false;
-      return Value{};
+#if defined(__ANDROID__)
+      // 单子项 layout 失败（如 RecyclerView adapter 类型未注册）不中止兄弟
+      // 节点布局：AOSP 会抛到主线程，这里记录后继续，保证后续兄弟有 bounds。
+      static int child_layout_fail_logs = 0;
+      if (child_layout_fail_logs++ < 24) {
+        __android_log_print(ANDROID_LOG_INFO, "DexVmRender", "child layout failed %s: %s",
+                            child->klass != nullptr ? child->klass->descriptor.c_str() : "?",
+                            state.pending_exception != nullptr &&
+                                    state.pending_exception->klass != nullptr
+                                ? state.pending_exception->klass->descriptor.c_str()
+                                : "?");
+      }
+#endif
+      state.ClearException();
+      continue;
     }
   }
   return Value{};

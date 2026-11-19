@@ -531,6 +531,8 @@ struct LayoutOverrides {
   int32_t margin_right = 0;
   int32_t margin_bottom = 0;
   int32_t visibility = -1;  // -1 = 未指定；0/4/8 = View 常量
+  int32_t layout_gravity = 0;
+  bool has_layout_gravity = false;
   std::string behavior;     // CoordinatorLayout layout_behavior 类名（点分）
   // ConstraintLayout 约束面：app:layout_constraint* -> LayoutParams 字段。
   std::vector<std::pair<std::string, int32_t>> constraint_ints;
@@ -718,6 +720,13 @@ void SetChildLayoutParams(InflateContext& ctx, VObject* parent, VObject* view,
   SetIntFieldByName(lp, "width", ov.width);
   SetIntFieldByName(lp, "height", ov.height);
   SetFloatFieldByName(lp, "weight", ov.weight);
+  if (ov.has_layout_gravity) SetIntFieldByName(lp, "gravity", ov.layout_gravity);
+  // CoordinatorLayout.LayoutParams.keyline 缺省 -1（AOSP 构造器解析缺省值）；
+  // guest LP 构造走 AttributeSet=null，字段停在 0 会触发 layoutChildWithKeyline
+  // 而不是默认按 gravity 摆放（AppBar 被摆到垂直居中 y=352 的根因）。
+  if (FindFieldInChain(lp->klass, "keyline") != nullptr) {
+    SetIntFieldByName(lp, "keyline", -1);
+  }
   for (const auto& ci : ov.constraint_ints) SetIntFieldByName(lp, ci.first.c_str(), ci.second);
   for (const auto& cf : ov.constraint_floats) {
     SetFloatFieldByName(lp, cf.first.c_str(), cf.second);
@@ -911,6 +920,10 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
               inc_ov.weight = w;
               inc_ov.any = true;
             }
+          } else if (name == "layout_gravity") {
+            inc_ov.layout_gravity = ResolveIntValue(ctx, attr, 0);
+            inc_ov.has_layout_gravity = true;
+            inc_ov.any = true;
           } else if (name == "visibility") {
             // <include> 的 visibility 作用于被包含布局根（AOSP inflate 语义）。
             int32_t vis = ResolveIntValue(ctx, attr, 0);
@@ -1097,6 +1110,13 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
             ov.weight = w;
             ov.any = true;
           }
+        } else if (name == "layout_gravity") {
+          // Gravity 位域（BOTTOM|END 等）：落到 LayoutParams.gravity，供
+          // FrameLayout/CoordinatorLayout 等容器摆放（缺失时字段为 -1，
+          // 底部导航会被摆到左上）。
+          ov.layout_gravity = ResolveIntValue(ctx, attr, 0);
+          ov.has_layout_gravity = true;
+          if (constraint_approx) ov.any = true;
         } else if (name == "layout_behavior") {
           // CoordinatorLayout Behavior（字符串资源即行为类全名）。
           std::string s;
