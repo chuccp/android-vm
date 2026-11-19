@@ -375,6 +375,15 @@ VField* FindFieldInChain(VClass* klass, const char* name) {
   return klass != nullptr ? FindInstanceField(klass, name) : nullptr;
 }
 
+// TabLayout 族判定（material TabLayout 及其子类；tab* XML 属性只允许落到
+// 这类视图上——"mode" 等字段名过于通用，不能对任意自定义 View 盲写）。
+bool IsTabLayoutClass(VClass* klass) {
+  for (VClass* k = klass; k != nullptr; k = k->super_class) {
+    if (k->descriptor.find("TabLayout;") != std::string::npos) return true;
+  }
+  return false;
+}
+
 void SetIntFieldByName(VObject* view, const char* name, int32_t value) {
   if (VField* f = FindFieldInChain(view->klass, name)) SetIField(view, f->offset, value);
 }
@@ -1022,6 +1031,7 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
 
       // ---- 属性映射 ----
       LayoutOverrides ov;
+      const bool tab_layout_class = IsTabLayoutClass(view->klass);
       for (const auto& attr : ev.attrs) {
         std::string_view name = AttrName(attr);
         if (name.empty()) continue;
@@ -1097,6 +1107,46 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
         } else if (name == "progress") {
           int32_t progress = ResolveIntValue(ctx, attr, 0);
           SetIntFieldByName(view, "mProgress", progress);
+        } else if (tab_layout_class && (name == "tabPadding" || name == "tabPaddingStart" ||
+                                        name == "tabPaddingEnd" || name == "tabPaddingTop" ||
+                                        name == "tabPaddingBottom")) {
+          // TabLayout 的 tabPadding* 由构造器经 obtainStyledAttributes 读取；
+          // VM 的 AttributeSet 面尚未落地（CtxObtainStyledAttributes 返回零值
+          // TypedArray），这里把 XML 维度直接落到 TabLayout 字段上（material
+          // TabLayout.TabView.onMeasure 读 tabPaddingStart/End——缺省 0 会让
+          // 顶部 tab 文字相接，“关注推荐热榜直播北京”挤成一条）。
+          float px = 0;
+          if (ResolveDimensionPx(ctx, attr, &px)) {
+            int32_t pad = static_cast<int32_t>(std::lround(px));
+            if (name == "tabPadding" || name == "tabPaddingStart") {
+              SetIntFieldByName(view, "tabPaddingStart", pad);
+            }
+            if (name == "tabPadding" || name == "tabPaddingEnd") {
+              SetIntFieldByName(view, "tabPaddingEnd", pad);
+            }
+            if (name == "tabPadding" || name == "tabPaddingTop") {
+              SetIntFieldByName(view, "tabPaddingTop", pad);
+            }
+            if (name == "tabPadding" || name == "tabPaddingBottom") {
+              SetIntFieldByName(view, "tabPaddingBottom", pad);
+            }
+          }
+        } else if (tab_layout_class && name == "tabMinWidth") {
+          float px = 0;
+          if (ResolveDimensionPx(ctx, attr, &px)) {
+            SetIntFieldByName(view, "requestedTabMinWidth", static_cast<int32_t>(std::lround(px)));
+          }
+        } else if (tab_layout_class && name == "tabMaxWidth") {
+          float px = 0;
+          if (ResolveDimensionPx(ctx, attr, &px)) {
+            SetIntFieldByName(view, "requestedTabMaxWidth", static_cast<int32_t>(std::lround(px)));
+          }
+        } else if (tab_layout_class && name == "tabMode") {
+          SetIntFieldByName(view, "mode", ResolveIntValue(ctx, attr, 1));
+        } else if (tab_layout_class && name == "tabGravity") {
+          SetIntFieldByName(view, "tabGravity", ResolveIntValue(ctx, attr, 0));
+        } else if (tab_layout_class && name == "tabIndicatorFullWidth") {
+          SetIntFieldByName(view, "tabIndicatorFullWidth", ResolveIntValue(ctx, attr, 1));
         } else if (name == "layout_width") {
           ResolveSizeValue(ctx, attr, &ov.width);
           if (constraint_approx && ov.width == 0) ov.width = kMatchParent;
