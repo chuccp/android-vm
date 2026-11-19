@@ -1,0 +1,18 @@
+package android.content;
+
+/**
+ * 组件回调扩展接口（AOSP android.content.ComponentCallbacks2；§31.7 C 档 lib
+ * 接口面——onTrimMemory 级别面）。
+ */
+public interface ComponentCallbacks2 extends ComponentCallbacks {
+
+    int TRIM_MEMORY_COMPLETE = 80;
+    int TRIM_MEMORY_MODERATE = 60;
+    int TRIM_MEMORY_BACKGROUND = 40;
+    int TRIM_MEMORY_UI_HIDDEN = 20;
+    int TRIM_MEMORY_RUNNING_CRITICAL = 15;
+    int TRIM_MEMORY_RUNNING_LOW = 10;
+    int TRIM_MEMORY_RUNNING_MODERATE = 5;
+
+    void onTrimMemory(int level);
+}

@@ -1,0 +1,17 @@
+{
+  "project": "OpenJDK",
+  "repository": "https://github.com/openjdk/jdk11u",
+  "tag": "jdk-11.0.34+0",
+  "commit": "7110e0fe7dd05da3795f835d78b6761dfcb1fd29",
+  "module": "java.base",
+  "vendored": [
+    "src/main/java (from java.base/share/classes)"
+  ],
+  "excluded": [
+    "HotSpot",
+    "native sources",
+    "platform binaries",
+    "build tooling",
+    "JDK utilities"
+  ]
+}

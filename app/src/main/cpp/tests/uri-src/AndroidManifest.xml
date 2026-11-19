@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Uri/UriMatcher/ContentResolver 家族 fixture（tools/uri_resolver_tests.sh 打包）。
+     两 provider 路由面：alpha（单 authority + onCreate 内 UriMatcher 登记/匹配，
+     lib UriMatcher 消费链）与 beta（authorities 分号多值：beta;gamma——注册表
+     逐键分发断言）。CRUD 全形（query/insert/update/delete/getType）记录 + 简单
+     返回值，断言在 uri_resolver_smoke.cc 侧。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.dexvm.uritest"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+
+    <application>
+        <provider
+            android:name="uritest.UriProbeProvider"
+            android:authorities="com.dexvm.uri.alpha"
+            android:exported="false" />
+
+        <provider
+            android:name="uritest.BetaProvider"
+            android:authorities="com.dexvm.uri.beta;com.dexvm.uri.gamma"
+            android:exported="false" />
+    </application>
+</manifest>

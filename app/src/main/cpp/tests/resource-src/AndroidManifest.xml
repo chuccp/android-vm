@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resources 面 + grantUriPermissions 投影 fixture（tools/resource_tests.sh 打包）。
+     两 provider 覆盖 grantUri 投影两面：PathsProbe（grantUriPermissions=true +
+     FILE_PROVIDER_PATHS meta-data @xml/file_paths，FileProvider 消费链同款）与
+     PlainProbe（属性缺省 = false 投影断言）。声明序 Paths/Plain，install 序 =
+     initOrder 降序 Paths(10)/Plain(0)。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.dexvm.rtest"
+    android:versionCode="31001"
+    android:versionName="3.1.0">
+
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+
+    <application android:name=".RTestApp">
+        <provider
+            android:name=".PathsProbeProvider"
+            android:authorities="com.dexvm.rtest.files"
+            android:exported="false"
+            android:initOrder="10"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <provider
+            android:name=".PlainProbeProvider"
+            android:authorities="com.dexvm.rtest.plain"
+            android:initOrder="0" />
+    </application>
+</manifest>

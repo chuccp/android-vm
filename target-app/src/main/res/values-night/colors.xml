@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="runtime_background">#FF0B1F1C</color>
+    <color name="runtime_title">#FFF1FFF9</color>
+    <color name="runtime_body">#FFB8D8CF</color>
+</resources>

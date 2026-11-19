@@ -1,0 +1,15 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.cxx/
+app/.cxx/
+captures/
+.DS_Store
+/reference
+*.apk
+*.dex
+*.apk
+/runtime-libs/runtime-overlays
+*.bin

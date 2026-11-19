@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/runtime_feature_panel"
+    android:layout_width="match_parent"
+    android:layout_height="260dp"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="@dimen/runtime_gap">
+
+    <TextView
+        android:id="@+id/runtime_included_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/xml_included"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <Switch
+        android:id="@+id/runtime_switch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:checked="true"
+        android:text="@string/xml_switch" />
+
+    <ProgressBar
+        android:id="@+id/runtime_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:progress="35" />
+
+    <EditText
+        android:id="@+id/runtime_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/xml_input" />
+
+    <ImageView
+        android:id="@+id/runtime_image"
+        android:layout_width="160dp"
+        android:layout_height="90dp"
+        android:scaleType="fitCenter"
+        android:contentDescription="@string/xml_image" />
+
+    <VideoView
+        android:id="@+id/runtime_video"
+        android:layout_width="match_parent"
+        android:layout_height="80dp" />
+
+    <VideoView
+        android:id="@+id/runtime_hls_video"
+        android:layout_width="match_parent"
+        android:layout_height="160dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/runtime_hls_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="HLS pending"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <TextView
+        android:id="@+id/runtime_media_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Media pending"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <TextView
+        android:id="@+id/runtime_thread_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/thread_pending"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <TextView
+        android:id="@+id/runtime_io_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Guest pipe IO pending"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <TextView
+        android:id="@+id/runtime_capability_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="DEX special usage pending"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    </LinearLayout>
+</ScrollView>

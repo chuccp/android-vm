@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/runtime_background"
+    android:padding="@dimen/runtime_padding">
+
+    <TextView
+        android:id="@+id/runtime_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="@string/xml_title"
+        android:textColor="@color/runtime_title"
+        android:textSize="@dimen/runtime_title_size"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <Button
+        android:id="@+id/runtime_action"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:gravity="center"
+        android:text="@string/xml_action"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/runtime_title" />
+
+    <Button
+        android:id="@+id/runtime_hls_action"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:gravity="center"
+        android:text="@string/xml_hls"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/runtime_action" />
+
+    <Button
+        android:id="@+id/runtime_netty_action"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:gravity="center"
+        android:text="@string/xml_netty_action"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/runtime_hls_action" />
+
+    <TextView
+        android:id="@+id/runtime_netty_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:text="@string/netty_pending"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/runtime_netty_action" />
+
+    <include
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/runtime_netty_status"
+        layout="@layout/runtime_footer" />
+
+    <FrameLayout
+        android:id="@+id/runtime_frame"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="@dimen/runtime_gap"
+        app:layout_constraintBottom_toTopOf="@id/runtime_status"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/runtime_feature_panel">
+
+        <RelativeLayout
+            android:id="@+id/runtime_relative"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:padding="@dimen/runtime_gap">
+
+            <TextView
+                android:id="@+id/runtime_compiled_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentStart="true"
+                android:text="@string/xml_compiled"
+                android:textColor="@color/runtime_accent"
+                android:textSize="@dimen/runtime_body_size" />
+
+            <TextView
+                android:id="@+id/runtime_relative_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_alignStart="@id/runtime_compiled_label"
+                android:layout_below="@id/runtime_compiled_label"
+                android:layout_marginTop="@dimen/runtime_gap"
+                android:text="@string/xml_relative"
+                android:textColor="@color/runtime_body"
+                style="@style/RuntimeBodyText" />
+        </RelativeLayout>
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/runtime_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/status_created"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+</androidx.constraintlayout.widget.ConstraintLayout>

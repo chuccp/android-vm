@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xml_title">XML Runtime Layout</string>
+    <string name="xml_action">Tap the virtual layout</string>
+    <string name="xml_hls">Play HLS stream</string>
+    <string name="xml_netty_action">Start Netty HTTP server</string>
+    <string name="netty_pending">Netty HTTP pending</string>
+    <string name="xml_compiled">Compiled Binary XML</string>
+    <string name="xml_relative">RelativeLayout resource rules</string>
+    <string name="xml_constraint">ConstraintLayout resource layout</string>
+    <string name="xml_included">Included compiled layout</string>
+    <string name="xml_switch">Switch enabled</string>
+    <string name="xml_input">Compatibility input</string>
+    <string name="xml_image">Image slot</string>
+    <string name="xml_programmatic_prefix">Programmatic VM panel</string>
+    <string name="xml_touch_prefix">Touch count</string>
+    <string name="thread_pending">Thread pending</string>
+    <string name="thread_complete">Guest thread completed</string>
+    <string name="status_created">CREATED</string>
+    <string name="status_started">STARTED</string>
+    <string name="status_resumed">RESUMED</string>
+    <string name="status_paused">PAUSED</string>
+    <string name="status_stopped">STOPPED</string>
+    <string name="status_touched">TOUCHED</string>
+    <string name="status_destroyed">DESTROYED</string>
+</resources>

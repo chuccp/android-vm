@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 设备考卷的 socket 面（AF_INET 创建受 INTERNET 权限门控） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 宿主蓝牙适配器桥（bluetooth.* 真值快照；S+ 读面需 BLUETOOTH_CONNECT） -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- 宿主通知桥（guest 通知 -> 宿主 NotificationManager 真通知下发） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:label="DexVM Host"
+        android:allowBackup="false"
+        android:debuggable="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- isolated worker：绑定一个活动 MVContext + 一个 ART Runtime（文档 §5.1） -->
+        <service
+            android:name=".MvWorkerService"
+            android:process=":mvworker"
+            android:exported="false" />
+    </application>
+
+</manifest>

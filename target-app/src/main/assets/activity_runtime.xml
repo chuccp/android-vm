@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout>
+    <LinearLayout
+        orientation="vertical"
+        gravity="center"
+        padding="52"
+        background="#FFF4F8F5">
+        <TextView
+            text="@arsc:XML Runtime Layout"
+            textSize="28sp"
+            textColor="#FF0E3731"
+            gravity="center" />
+        <Button
+            text="@arsc:Tap the virtual layout"
+            gravity="center" />
+    </LinearLayout>
+</layout>

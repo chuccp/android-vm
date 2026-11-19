@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="RuntimeBodyText">
+        <item name="android:textColor">@color/runtime_body</item>
+        <item name="android:textSize">@dimen/runtime_body_size</item>
+    </style>
+</resources>

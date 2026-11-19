@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ProviderInfo 装配 + manifest 值投影 fixture（tools/provider_info_tests.sh 打包）。
+     三 provider 覆盖：authorities 分号多值/相对名/process:前缀/permission 回落/
+     <meta-data> 分型/显式 exported+initOrder；readPermission/writePermission 分立 +
+     intent-filter 缺省 exported（AOSP 组件默认语义）；全缺省面（exported=false、
+     processName=包名、权限 null、metaData null）。声明序 Defaults/Perms/Multi，
+     install 序 = initOrder 降序 Multi(10)/Perms(5)/Defaults(0)。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.dexvm.pitest"
+    android:versionCode="77001"
+    android:versionName="7.7.1">
+
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+
+    <application android:name=".ProbeApp"
+        android:debuggable="true"
+        android:largeHeap="true">
+        <meta-data android:name="app.flag" android:value="true" />
+        <meta-data android:name="app.count" android:value="42" />
+        <meta-data android:name="app.tag" android:value="hello" />
+
+        <provider
+            android:name=".DefaultsProbe"
+            android:authorities="com.dexvm.pitest.gamma" />
+
+        <provider
+            android:name="com.dexvm.pitest.PermsProbe"
+            android:authorities="com.dexvm.pitest.delta"
+            android:initOrder="5"
+            android:enabled="false"
+            android:readPermission="com.dexvm.pitest.R"
+            android:writePermission="com.dexvm.pitest.W">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+            </intent-filter>
+        </provider>
+
+        <provider
+            android:name=".MultiProbe"
+            android:authorities="com.dexvm.pitest.alpha;com.dexvm.pitest.beta"
+            android:exported="true"
+            android:initOrder="10"
+            android:process=":remote"
+            android:permission="com.dexvm.pitest.PERM"
+            android:multiprocess="true">
+            <meta-data android:name="p.key" android:value="pval" />
+            <meta-data android:name="p.n" android:value="7" />
+            <meta-data android:name="p.b" android:value="true" />
+        </provider>
+    </application>
+</manifest>

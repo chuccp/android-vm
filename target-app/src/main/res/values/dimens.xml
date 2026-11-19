@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="runtime_padding">20dp</dimen>
+    <dimen name="runtime_gap">8dp</dimen>
+    <dimen name="runtime_title_size">28sp</dimen>
+    <dimen name="runtime_body_size">16sp</dimen>
+</resources>

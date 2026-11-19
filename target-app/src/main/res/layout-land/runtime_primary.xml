@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="@dimen/runtime_padding">
+
+    <TextView
+        android:id="@+id/runtime_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/xml_title"
+        android:textColor="@color/runtime_title"
+        android:textSize="@dimen/runtime_title_size" />
+
+    <TextView
+        android:id="@+id/runtime_landscape_marker"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="orientation=2"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <TextView
+        android:id="@+id/runtime_compiled_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/xml_compiled"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <TextView
+        android:id="@+id/runtime_relative_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/xml_relative"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <Button
+        android:id="@+id/runtime_action"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/xml_action" />
+
+    <Button
+        android:id="@+id/runtime_netty_action"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/xml_netty_action" />
+
+    <TextView
+        android:id="@+id/runtime_netty_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/netty_pending"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <include
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        layout="@layout/runtime_footer" />
+
+    <TextView
+        android:id="@+id/runtime_status"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/status_created" />
+</LinearLayout>

@@ -1,0 +1,1295 @@
+== zhihu.apk android.* 需求面静态提取（framework 面批量补充轮） ==
+target: /tmp/target-apks/zhihu.apk
+dex: 18 (classes.dex, classes2.dex, classes3.dex, classes4.dex...)
+apk classes: 168438   const-string 类名 hit: 1910
+manifest seeds extracted via aapt: 37
+startup closure: 1841 apk classes (cap 30000)
+
+-- 摘要 --
+android.* 引用类: 1253 (framework 需求口径；APK 自带 158 个已剔除)  已覆盖: 274  缺口: 979  覆盖率(类): 21.9%
+android.* 引用成员: 11522  缺口成员: 9478  覆盖率(成员名): 17.7%
+
+-- 家族排序（freq / startup_freq / classes）--
+  android.view                   261926    10987   173
+  android.os                     137556     6626    65
+  android.content                195962     6504    71
+  android.graphics                92964     5540   116
+  android.widget                 104108     3079   101
+  android.util                    42909     2388    35
+  android.app                     41843     1567    97
+  android.text                    31278      844    73
+  android.media                    7600      656   115
+  android.net                     19884      399    62
+  android.database                10837      394    25
+  android.animation               25179      355    20
+  android.transition                342      120    13
+  android.location                 1381       76    19
+  android.webkit                   5997       37    53
+  android.hardware                 5852       27    61
+  android.icu                       424       15    23
+  android.system                    108        5     4
+  android.provider                  488        3    21
+  android.telephony                1203        2    39
+  android.accounts                  676        2     7
+  android.opengl                   2702        1    17
+  android.appwidget                 478        1     2
+  android.bluetooth                  83        1     5
+  android.nfc                         9        1     2
+  android.telecom                     6        1     2
+  android.print                       1        1     1
+  android.R$id                     1681        0     1
+  android.accessibilityservice      918        0     6
+  android.renderscript              367        0     7
+  android.security                  172        0     5
+  android.service                   114        0     4
+  android.preference                112        0     2
+  android.annotation                 34        0     4
+  android.taobao                     13        0     2
+
+-- 类级需求 top 60（startup 频次优先）--
+  class                                                   freq   sFreq  dex   ref  cov
+  android.view.View                                     155272    4537   18 21723  builtin
+  android.content.Context                               120186    2372   18 20470  builtin
+  android.os.Bundle                                      38273    2051   18  6092  lib
+  android.os.Parcel                                      52560    1943   17  8202  lib
+  android.graphics.drawable.Drawable                     11830    1702   18  2009  lib
+  android.view.ViewGroup                                 34034    1442   18  7924  builtin
+  android.content.res.TypedArray                          4577    1145   17   580  lib
+  android.graphics.Rect                                   9986     974   18  1404  lib
+  android.os.Build$VERSION                                4266     905   18  2117  builtin
+  android.util.SparseIntArray                             5807     864   15   645  lib
+  android.content.res.Resources                          10055     678   18  2540  builtin
+  android.widget.TextView                                37236     613   17  5393  builtin
+  android.util.AttributeSet                              10690     576   18  3496  lib
+  android.content.Intent                                 18890     398   18  2605  builtin
+  android.view.accessibility.AccessibilityNodeInfo         460     393    5    44  lib
+  android.graphics.PorterDuff$Mode                        1929     369   17   431  lib
+  android.content.res.ColorStateList                      2732     362   17   409  lib
+  android.widget.FrameLayout                             17949     345   17  3295  lib
+  android.util.SparseArray                               17014     344   17  3138  lib
+  android.support.v4.media.session.IMediaSession           362     360    1    12  apk
+  android.graphics.Paint                                 12225     327   18  1586  lib
+  android.net.Uri                                        12668     324   18  2362  builtin
+  android.view.ViewGroup$LayoutParams                    10235     316   18  2612  builtin
+  android.view.MotionEvent                                6198     317   17  1109  lib
+  android.os.Handler                                     11175     312   18  2190  builtin
+  android.os.IBinder                                      2793     295   16   691  lib
+  android.support.v4.media.session.MediaSessionCompat$MediaSessionImplBase     305     292    1    19  apk
+  android.view.MenuItem                                   1474     290   17   308  lib
+  android.app.Activity                                   13449     276   18  3122  builtin
+  android.graphics.Canvas                                 4152     282   18   885  builtin
+  android.app.Notification                                 970     277   11   337  lib
+  android.widget.ImageView                               11945     263   17  2580  lib
+  android.util.TypedValue                                  554     271   17   137  lib
+  android.view.ViewPropertyAnimator                       4975     250   17   311  lib
+  android.os.Parcelable                                   6350     241   18  2017  lib
+  android.content.res.Configuration                       1645     239   18   776  lib
+  android.graphics.Typeface                               1534     232   17   326  lib
+  android.content.res.Resources$Theme                      611     226   16   204  builtin
+  android.view.ViewGroup$MarginLayoutParams               3521     222   17   777  builtin
+  android.app.Notification$Builder                         949     216    7    60  lib
+  android.widget.EdgeEffect                                305     213    3     9  lib
+  android.database.Cursor                                 7939     201   17   531  builtin
+  android.text.TextPaint                                  2202     205   16   415  lib
+  android.graphics.Bitmap                                 9135     197   18  1477  lib
+  android.zhihu.com.feedback.R$styleable                   247     199    1    23  apk
+  android.view.Window                                     2806     181   17   832  lib
+  android.os.Parcelable$Creator                           4657     175   17  3175  lib
+  android.widget.ListView                                  285     179    8    51  lib
+  android.view.ViewParent                                 1971     170   17   773  builtin
+  android.view.KeyEvent                                    737     168   17   273  lib
+  android.view.LayoutInflater                            11193     153   17  3715  lib
+  android.view.Menu                                        886     152   17   192  lib
+  android.view.WindowInsets                                428     152   14    95  lib
+  android.content.ComponentName                           1981     150   18   587  lib
+  android.text.TextUtils                                 17999     132   18  5706  lib
+  android.support.v4.media.session.MediaSessionCompat$Callback     161     148    3    14  apk
+  android.widget.PopupWindow                               566     145   13   100  lib
+  android.support.v4.media.session.PlaybackStateCompat     148     144    3    22  apk
+  android.graphics.Matrix                                 3281     139   18   369  lib
+  android.support.v4.media.session.MediaSessionCompat$MediaSessionImplApi21     143     142    1     8  apk
+
+-- 类级缺口清单（979）按 startup 频次排序 --
+  android.widget.Spinner                               freq=   159 sFreq=    86 dex=6 referrers=20
+  android.view.inputmethod.EditorInfo                  freq=   124 sFreq=    71 dex=7 referrers=44
+  android.transition.Transition                        freq=   140 sFreq=    69 dex=5 referrers=23
+  android.widget.OverScroller                          freq=   721 sFreq=    67 dex=11 referrers=159
+  android.media.session.MediaSession                   freq=    54 sFreq=    54 dex=1 referrers=4
+  android.widget.Scroller                              freq=   288 sFreq=    50 dex=11 referrers=22
+  android.content.pm.ResolveInfo                       freq=   459 sFreq=    49 dex=12 referrers=172
+  android.media.session.MediaController$TransportControls freq=    50 sFreq=    49 dex=1 referrers=6
+  android.media.session.MediaController                freq=    48 sFreq=    47 dex=1 referrers=4
+  android.view.DisplayCutout                           freq=    51 sFreq=    42 dex=5 referrers=11
+  android.transition.TransitionSet                     freq=    73 sFreq=    39 dex=5 referrers=7
+  android.view.inputmethod.InputConnection             freq=    69 sFreq=    39 dex=7 referrers=29
+  android.widget.EditText                              freq=  3367 sFreq=    35 dex=17 referrers=568
+  android.app.NotificationManager                      freq=   250 sFreq=    38 dex=10 referrers=78
+  android.graphics.PorterDuffColorFilter               freq=   244 sFreq=    38 dex=13 referrers=76
+  android.media.browse.MediaBrowser                    freq=    38 sFreq=    38 dex=1 referrers=4
+  android.animation.PropertyValuesHolder               freq=   229 sFreq=    37 dex=8 referrers=31
+  android.media.RemoteControlClient$MetadataEditor     freq=    37 sFreq=    37 dex=1 referrers=2
+  android.widget.HorizontalScrollView                  freq=   812 sFreq=    36 dex=15 referrers=166
+  android.widget.SeekBar                               freq=  1094 sFreq=    35 dex=16 referrers=185
+  android.view.WindowInsetsController                  freq=    43 sFreq=    36 dex=2 referrers=6
+  android.app.RemoteInput                              freq=    45 sFreq=    35 dex=1 referrers=10
+  android.util.Xml                                     freq=    63 sFreq=    34 dex=6 referrers=33
+  android.content.pm.ActivityInfo                      freq=  2708 sFreq=    31 dex=12 referrers=790
+  android.view.ContentInfo                             freq=    33 sFreq=    33 dex=1 referrers=6
+  android.view.ContentInfo$Builder                     freq=    33 sFreq=    33 dex=1 referrers=2
+  android.media.MediaDescription                       freq=    33 sFreq=    31 dex=1 referrers=10
+  android.media.RemoteControlClient                    freq=    33 sFreq=    30 dex=1 referrers=7
+  android.media.session.PlaybackState                  freq=    30 sFreq=    30 dex=1 referrers=5
+  android.content.pm.ApplicationInfo                   freq=  3354 sFreq=    26 dex=18 referrers=1586
+  android.animation.AnimatorSet                        freq=  2099 sFreq=    27 dex=16 referrers=549
+  android.text.method.KeyListener                      freq=    60 sFreq=    29 dex=4 referrers=15
+  android.content.pm.ShortcutInfo                      freq=    60 sFreq=    28 dex=3 referrers=6
+  android.view.InflateException                        freq=    37 sFreq=    28 dex=1 referrers=6
+  android.animation.Keyframe                           freq=    28 sFreq=    28 dex=1 referrers=1
+  android.media.MediaDescription$Builder               freq=    28 sFreq=    28 dex=1 referrers=3
+  android.widget.AutoCompleteTextView                  freq=   184 sFreq=    27 dex=3 referrers=22
+  android.text.Editable                                freq=  1133 sFreq=    26 dex=17 referrers=344
+  android.content.pm.ShortcutInfo$Builder              freq=    63 sFreq=    27 dex=3 referrers=4
+  android.media.Rating                                 freq=    27 sFreq=    27 dex=1 referrers=4
+  android.media.AudioManager                           freq=   629 sFreq=    26 dex=15 referrers=80
+  android.view.animation.DecelerateInterpolator        freq=   283 sFreq=    25 dex=16 referrers=112
+  android.view.View$OnAttachStateChangeListener        freq=   182 sFreq=    25 dex=15 referrers=130
+  android.view.WindowInsetsAnimation                   freq=    27 sFreq=    25 dex=1 referrers=5
+  android.media.session.PlaybackState$Builder          freq=    25 sFreq=    25 dex=1 referrers=3
+  android.app.AppOpsManager                            freq=    51 sFreq=    24 dex=5 referrers=17
+  android.content.ClipDescription                      freq=    26 sFreq=    24 dex=1 referrers=8
+  android.widget.MultiAutoCompleteTextView             freq=    24 sFreq=    24 dex=1 referrers=1
+  android.webkit.CookieManager                         freq=   316 sFreq=    23 dex=12 referrers=80
+  android.app.NotificationChannelGroup                 freq=    32 sFreq=    23 dex=2 referrers=6
+  android.app.Person                                   freq=    29 sFreq=    23 dex=2 referrers=11
+  android.view.WindowInsetsAnimationController         freq=    23 sFreq=    23 dex=1 referrers=3
+  android.widget.RadioButton                           freq=   239 sFreq=    22 dex=11 referrers=37
+  android.graphics.fonts.Font$Builder                  freq=    21 sFreq=    21 dex=1 referrers=1
+  android.view.accessibility.AccessibilityNodeInfo$CollectionItemInfo freq=    21 sFreq=    21 dex=1 referrers=2
+  android.graphics.Shader$TileMode                     freq=   423 sFreq=    20 dex=16 referrers=110
+  android.graphics.PathMeasure                         freq=   192 sFreq=    20 dex=6 referrers=24
+  android.text.InputFilter                             freq=   100 sFreq=    20 dex=11 referrers=33
+  android.view.PointerIcon                             freq=    22 sFreq=    20 dex=2 referrers=5
+  android.text.PrecomputedText                         freq=    21 sFreq=    20 dex=1 referrers=3
+  android.view.inputmethod.InputContentInfo            freq=    20 sFreq=    20 dex=1 referrers=4
+  android.content.IntentFilter                         freq=   818 sFreq=    19 dex=16 referrers=188
+  android.app.RemoteInput$Builder                      freq=    30 sFreq=    19 dex=1 referrers=4
+  android.widget.CheckBox                              freq=   903 sFreq=    18 dex=16 referrers=256
+  android.content.BroadcastReceiver                    freq=   692 sFreq=    17 dex=17 referrers=335
+  android.graphics.drawable.AnimationDrawable          freq=   119 sFreq=    17 dex=4 referrers=21
+  android.content.LocusId                              freq=    29 sFreq=    17 dex=3 referrers=13
+  android.view.accessibility.AccessibilityNodeInfo$CollectionInfo freq=    17 sFreq=    17 dex=1 referrers=2
+  android.app.Notification$Action$Builder              freq=   126 sFreq=    16 dex=3 referrers=86
+  android.graphics.drawable.ShapeDrawable              freq=   186 sFreq=    15 dex=13 referrers=47
+  android.view.DragEvent                               freq=    25 sFreq=    15 dex=2 referrers=12
+  android.view.FocusFinder                             freq=    19 sFreq=    15 dex=2 referrers=5
+  android.app.Person$Builder                           freq=    15 sFreq=    15 dex=1 referrers=1
+  android.graphics.fonts.Font                          freq=    15 sFreq=    15 dex=1 referrers=1
+  android.view.accessibility.AccessibilityNodeInfo$TouchDelegateInfo freq=    15 sFreq=    15 dex=1 referrers=2
+  android.view.ContextThemeWrapper                     freq=    95 sFreq=    14 dex=7 referrers=25
+  android.media.session.PlaybackState$CustomAction     freq=    14 sFreq=    14 dex=1 referrers=3
+  android.widget.HeaderViewListAdapter                 freq=    14 sFreq=    14 dex=1 referrers=3
+  android.app.ActivityManager$MemoryInfo               freq=  5844 sFreq=     8 dex=12 referrers=1977
+  android.view.View$BaseSavedState                     freq=   101 sFreq=    13 dex=9 referrers=54
+  android.hardware.fingerprint.FingerprintManager$CryptoObject freq=    65 sFreq=    13 dex=1 referrers=36
+  android.text.method.TransformationMethod             freq=    52 sFreq=    13 dex=4 referrers=19
+  android.app.Notification$MessagingStyle              freq=    13 sFreq=    13 dex=1 referrers=2
+  android.text.PrecomputedText$Params                  freq=    13 sFreq=    13 dex=1 referrers=4
+  android.view.accessibility.AccessibilityNodeInfo$RangeInfo freq=    13 sFreq=    13 dex=1 referrers=2
+  android.util.SparseBooleanArray                      freq=   206 sFreq=    12 dex=4 referrers=24
+  android.view.inputmethod.InputMethodManager          freq=   147 sFreq=    12 dex=15 referrers=46
+  android.view.animation.AnimationUtils                freq=    74 sFreq=    12 dex=14 referrers=44
+  android.database.AbstractWindowedCursor              freq=    38 sFreq=    12 dex=2 referrers=20
+  android.view.KeyEvent$DispatcherState                freq=    20 sFreq=    12 dex=2 referrers=5
+  android.media.session.MediaSessionManager$RemoteUserInfo freq=    14 sFreq=    12 dex=1 referrers=4
+  android.media.session.MediaSession$QueueItem         freq=    12 sFreq=    12 dex=1 referrers=3
+  android.app.Fragment                                 freq=   241 sFreq=    11 dex=4 referrers=41
+  android.text.style.ClickableSpan                     freq=   164 sFreq=    11 dex=13 referrers=87
+  android.content.IntentSender                         freq=    90 sFreq=    11 dex=6 referrers=24
+  android.media.MediaMetadata                          freq=    11 sFreq=    11 dex=1 referrers=3
+  android.media.VolumeProvider                         freq=    11 sFreq=    11 dex=1 referrers=5
+  android.media.browse.MediaBrowser$SubscriptionCallback freq=    11 sFreq=    11 dex=1 referrers=5
+  android.media.session.MediaController$PlaybackInfo   freq=    11 sFreq=    11 dex=1 referrers=2
+  android.widget.ProgressBar                           freq=  1403 sFreq=     9 dex=16 referrers=256
+  android.graphics.drawable.ColorDrawable              freq=   400 sFreq=    10 dex=18 referrers=163
+  android.webkit.MimeTypeMap                           freq=   200 sFreq=    10 dex=14 referrers=56
+  android.view.animation.AccelerateInterpolator        freq=   175 sFreq=    10 dex=11 referrers=108
+  android.view.accessibility.AccessibilityManager      freq=   123 sFreq=    10 dex=4 referrers=30
+  android.icu.util.ULocale                             freq=    92 sFreq=    10 dex=2 referrers=9
+  android.animation.LayoutTransition                   freq=    49 sFreq=    10 dex=3 referrers=20
+  android.view.AbsSavedState                           freq=    24 sFreq=    10 dex=3 referrers=18
+  android.media.session.MediaSession$Token             freq=    15 sFreq=    10 dex=1 referrers=6
+  android.view.WindowInsetsAnimation$Bounds            freq=    10 sFreq=    10 dex=1 referrers=3
+  android.view.textclassifier.TextClassifier           freq=    10 sFreq=    10 dex=1 referrers=4
+  android.util.Property                                freq=   581 sFreq=     9 dex=15 referrers=190
+  android.content.pm.ServiceInfo                       freq=   190 sFreq=     9 dex=7 referrers=78
+  android.graphics.Outline                             freq=   156 sFreq=     9 dex=15 referrers=137
+  android.widget.ToggleButton                          freq=    81 sFreq=     9 dex=7 referrers=21
+  android.view.DragAndDropPermissions                  freq=    19 sFreq=     9 dex=2 referrers=9
+  android.view.KeyCharacterMap                         freq=    12 sFreq=     9 dex=2 referrers=6
+  android.app.Notification$MessagingStyle$Message      freq=     9 sFreq=     9 dex=1 referrers=2
+  android.text.PrecomputedText$Params$Builder          freq=     9 sFreq=     9 dex=1 referrers=1
+  android.view.CollapsibleActionView                   freq=     9 sFreq=     9 dex=1 referrers=2
+  android.location.LocationManager                     freq=   417 sFreq=     8 dex=11 referrers=69
+  android.os.Environment                               freq=   346 sFreq=     8 dex=18 referrers=194
+  android.text.style.AbsoluteSizeSpan                  freq=   212 sFreq=     8 dex=14 referrers=96
+  android.media.session.PlaybackState$CustomAction$Builder freq=     8 sFreq=     8 dex=1 referrers=2
+  android.view.KeyCharacterMap$KeyData                 freq=     8 sFreq=     8 dex=1 referrers=1
+  android.app.ActivityManager                          freq=   384 sFreq=     7 dex=14 referrers=126
+  android.content.ServiceConnection                    freq=   341 sFreq=     7 dex=9 referrers=127
+  android.graphics.drawable.Animatable                 freq=   171 sFreq=     7 dex=14 referrers=87
+  android.widget.Switch                                freq=   115 sFreq=     7 dex=8 referrers=20
+  android.animation.TypeEvaluator                      freq=    72 sFreq=     7 dex=8 referrers=49
+  android.content.pm.PackageInfo                       freq=  2050 sFreq=     5 dex=18 referrers=863
+  android.view.View$OnApplyWindowInsetsListener        freq=    34 sFreq=     7 dex=11 referrers=28
+  android.text.Selection                               freq=    30 sFreq=     7 dex=5 referrers=16
+  android.transition.Transition$TransitionListener     freq=    19 sFreq=     7 dex=2 referrers=7
+  android.util.FloatProperty                           freq=     9 sFreq=     7 dex=3 referrers=4
+  android.graphics.fonts.FontFamily$Builder            freq=     7 sFreq=     7 dex=1 referrers=1
+  android.graphics.fonts.FontVariationAxis             freq=     7 sFreq=     7 dex=1 referrers=2
+  android.media.session.MediaController$Callback       freq=     7 sFreq=     7 dex=1 referrers=3
+  android.view.WindowId                                freq=     7 sFreq=     7 dex=1 referrers=1
+  android.view.ViewStub                                freq=   540 sFreq=     6 dex=14 referrers=138
+  android.text.TextWatcher                             freq=   311 sFreq=     6 dex=16 referrers=160
+  android.animation.ArgbEvaluator                      freq=   296 sFreq=     6 dex=11 referrers=80
+  android.view.animation.AccelerateDecelerateInterpolator freq=   175 sFreq=     6 dex=17 referrers=65
+  android.view.Choreographer                           freq=   131 sFreq=     6 dex=9 referrers=34
+  android.app.FragmentManager                          freq=   100 sFreq=     6 dex=6 referrers=26
+  android.graphics.drawable.InsetDrawable              freq=    72 sFreq=     6 dex=7 referrers=30
+  android.widget.ArrayAdapter                          freq=    70 sFreq=     6 dex=5 referrers=13
+  android.view.animation.OvershootInterpolator         freq=    53 sFreq=     6 dex=9 referrers=22
+  android.view.ViewOverlay                             freq=    15 sFreq=     6 dex=2 referrers=3
+  android.view.Gravity                                 freq=    14 sFreq=     6 dex=6 referrers=12
+  android.app.SharedElementCallback$OnSharedElementsReadyListener freq=    10 sFreq=     6 dex=2 referrers=5
+  android.view.accessibility.AccessibilityNodeProvider freq=    10 sFreq=     6 dex=3 referrers=8
+  android.view.animation.BounceInterpolator            freq=    10 sFreq=     6 dex=2 referrers=5
+  android.graphics.drawable.AnimatedVectorDrawable     freq=     7 sFreq=     6 dex=1 referrers=2
+  android.content.res.AssetManager$AssetInputStream    freq=     6 sFreq=     6 dex=1 referrers=1
+  android.text.SpanWatcher                             freq=     6 sFreq=     6 dex=1 referrers=1
+  android.util.Size                                    freq=   604 sFreq=     5 dex=15 referrers=88
+  android.view.animation.LinearInterpolator            freq=   352 sFreq=     5 dex=15 referrers=105
+  android.os.AsyncTask                                 freq=   290 sFreq=     5 dex=10 referrers=130
+  android.widget.RatingBar                             freq=    62 sFreq=     5 dex=7 referrers=19
+  android.app.SharedElementCallback                    freq=    51 sFreq=     5 dex=3 referrers=23
+  android.util.SizeF                                   freq=    27 sFreq=     5 dex=3 referrers=12
+  android.graphics.drawable.shapes.OvalShape           freq=    14 sFreq=     5 dex=3 referrers=6
+  android.icu.text.DecimalFormatSymbols                freq=     9 sFreq=     5 dex=2 referrers=4
+  android.content.BroadcastReceiver$PendingResult      freq=     6 sFreq=     5 dex=2 referrers=3
+  android.graphics.drawable.DrawableContainer$DrawableContainerState freq=     5 sFreq=     5 dex=1 referrers=3
+  android.media.browse.MediaBrowser$ConnectionCallback freq=     5 sFreq=     5 dex=1 referrers=3
+  android.media.browse.MediaBrowser$ItemCallback       freq=     5 sFreq=     5 dex=1 referrers=3
+  android.view.View$DragShadowBuilder                  freq=     5 sFreq=     5 dex=1 referrers=2
+  android.widget.ThemedSpinnerAdapter                  freq=     5 sFreq=     5 dex=1 referrers=2
+  android.view.View$OnTouchListener                    freq=   369 sFreq=     4 dex=16 referrers=235
+  android.view.animation.AnimationSet                  freq=   319 sFreq=     4 dex=7 referrers=119
+  android.app.FragmentTransaction                      freq=    77 sFreq=     4 dex=3 referrers=9
+  android.os.StrictMode$ThreadPolicy                   freq=    63 sFreq=     4 dex=5 referrers=13
+  android.graphics.RadialGradient                      freq=    61 sFreq=     4 dex=9 referrers=21
+  android.view.Choreographer$FrameCallback             freq=    60 sFreq=     4 dex=8 referrers=23
+  android.content.ContentProviderClient                freq=    59 sFreq=     4 dex=5 referrers=32
+  android.os.StrictMode                                freq=    46 sFreq=     4 dex=5 referrers=14
+  android.webkit.JsPromptResult                        freq=    45 sFreq=     4 dex=5 referrers=22
+  android.graphics.drawable.shapes.Shape               freq=    30 sFreq=     4 dex=12 referrers=24
+  android.net.SSLSessionCache                          freq=    25 sFreq=     4 dex=2 referrers=22
+  android.view.ViewGroupOverlay                        freq=    25 sFreq=     4 dex=2 referrers=4
+  android.view.inputmethod.InputConnectionWrapper      freq=    18 sFreq=     4 dex=3 referrers=5
+  android.view.animation.AnticipateInterpolator        freq=     6 sFreq=     4 dex=1 referrers=3
+  android.graphics.ColorSpace$Model                    freq=     4 sFreq=     4 dex=1 referrers=1
+  android.media.MediaMetadataEditor                    freq=     4 sFreq=     4 dex=1 referrers=1
+  android.media.session.MediaSession$Callback          freq=     4 sFreq=     4 dex=1 referrers=3
+  android.transition.Transition$EpicenterCallback      freq=     4 sFreq=     4 dex=1 referrers=3
+  android.widget.RelativeLayout                        freq=  3846 sFreq=     0 dex=18 referrers=730
+  android.util.Base64                                  freq=   690 sFreq=     3 dex=17 referrers=350
+  android.content.pm.Signature                         freq=   570 sFreq=     3 dex=9 referrers=234
+  android.app.ActivityManager$RunningAppProcessInfo    freq=  2523 sFreq=     1 dex=12 referrers=884
+  android.hardware.SensorManager                       freq=   344 sFreq=     3 dex=12 referrers=51
+  android.util.LongSparseArray                         freq=   214 sFreq=     3 dex=6 referrers=59
+  android.widget.Checkable                             freq=    49 sFreq=     3 dex=3 referrers=26
+  android.content.ContentUris                          freq=    41 sFreq=     3 dex=11 referrers=36
+  android.graphics.DashPathEffect                      freq=    39 sFreq=     3 dex=7 referrers=15
+  android.app.UiModeManager                            freq=    27 sFreq=     3 dex=4 referrers=13
+  android.util.AndroidRuntimeException                 freq=    16 sFreq=     3 dex=3 referrers=6
+  android.text.style.TextAppearanceSpan                freq=     9 sFreq=     3 dex=2 referrers=3
+  android.content.ContentProviderResult                freq=     8 sFreq=     3 dex=2 referrers=5
+  android.util.StateSet                                freq=     7 sFreq=     3 dex=3 referrers=6
+  android.media.browse.MediaBrowser$MediaItem          freq=     6 sFreq=     3 dex=1 referrers=3
+  android.app.Notification$DecoratedCustomViewStyle    freq=     5 sFreq=     3 dex=2 referrers=3
+  android.media.RemoteControlClient$OnMetadataUpdateListener freq=     5 sFreq=     3 dex=1 referrers=4
+  android.graphics.drawable.VectorDrawable             freq=     4 sFreq=     3 dex=2 referrers=2
+  android.graphics.drawable.ScaleDrawable              freq=     3 sFreq=     3 dex=1 referrers=1
+  android.view.View$OnUnhandledKeyEventListener        freq=     3 sFreq=     3 dex=1 referrers=1
+  android.view.WindowInsetsController$OnControllableInsetsChangedListener freq=     3 sFreq=     3 dex=1 referrers=1
+  android.view.textclassifier.TextClassificationManager freq=     3 sFreq=     3 dex=1 referrers=1
+  android.net.ConnectivityManager                      freq=   963 sFreq=     2 dex=15 referrers=223
+  android.widget.ScrollView                            freq=   467 sFreq=     2 dex=15 referrers=84
+  android.webkit.WebView                               freq=  2371 sFreq=     0 dex=15 referrers=394
+  android.widget.RelativeLayout$LayoutParams           freq=  1220 sFreq=     1 dex=16 referrers=256
+  android.os.Vibrator                                  freq=   203 sFreq=     2 dex=13 referrers=65
+  android.graphics.LinearGradient                      freq=   202 sFreq=     2 dex=14 referrers=61
+  android.graphics.PorterDuffXfermode                  freq=   191 sFreq=     2 dex=13 referrers=65
+  android.content.res.AssetFileDescriptor              freq=   189 sFreq=     2 dex=8 referrers=48
+  android.content.ClipboardManager                     freq=   135 sFreq=     2 dex=14 referrers=52
+  android.animation.AnimatorInflater                   freq=   130 sFreq=     2 dex=7 referrers=109
+  android.os.Debug$MemoryInfo                          freq=   103 sFreq=     2 dex=6 referrers=24
+  android.database.CursorWindow                        freq=    97 sFreq=     2 dex=4 referrers=12
+  android.graphics.drawable.RippleDrawable             freq=    85 sFreq=     2 dex=7 referrers=24
+  android.app.ActivityOptions                          freq=    80 sFreq=     2 dex=4 referrers=16
+  android.graphics.BitmapShader                        freq=    58 sFreq=     2 dex=9 referrers=17
+  android.graphics.BlurMaskFilter$Blur                 freq=    55 sFreq=     2 dex=5 referrers=31
+  android.view.View$OnKeyListener                      freq=    43 sFreq=     2 dex=10 referrers=22
+  android.widget.CursorAdapter                         freq=    36 sFreq=     2 dex=2 referrers=8
+  android.graphics.Movie                               freq=    35 sFreq=     2 dex=3 referrers=10
+  android.app.ActionBar                                freq=    34 sFreq=     2 dex=2 referrers=14
+  android.app.DownloadManager                          freq=    33 sFreq=     2 dex=4 referrers=12
+  android.net.Proxy                                    freq=    30 sFreq=     2 dex=4 referrers=17
+  android.graphics.drawable.ClipDrawable               freq=    25 sFreq=     2 dex=7 referrers=9
+  android.net.nsd.NsdManager                           freq=    22 sFreq=     2 dex=1 referrers=5
+  android.graphics.drawable.shapes.RoundRectShape      freq=    20 sFreq=     2 dex=6 referrers=8
+  android.os.storage.StorageManager                    freq=    17 sFreq=     2 dex=4 referrers=12
+  android.view.SearchEvent                             freq=    15 sFreq=     2 dex=4 referrers=11
+  android.content.Intent$ShortcutIconResource          freq=    11 sFreq=     2 dex=2 referrers=6
+  android.system.StructStat                            freq=    11 sFreq=     2 dex=3 referrers=4
+  android.widget.AbsListView$LayoutParams              freq=    11 sFreq=     2 dex=3 referrers=5
+  android.text.method.PasswordTransformationMethod     freq=    10 sFreq=     2 dex=2 referrers=7
+  android.graphics.SweepGradient                       freq=     9 sFreq=     2 dex=4 referrers=5
+  android.text.method.MetaKeyKeyListener               freq=     7 sFreq=     2 dex=1 referrers=7
+  android.view.animation.Transformation                freq=     6 sFreq=     2 dex=5 referrers=5
+  android.text.style.MetricAffectingSpan               freq=     5 sFreq=     2 dex=3 referrers=4
+  android.graphics.drawable.AdaptiveIconDrawable       freq=     2 sFreq=     2 dex=1 referrers=1
+  android.graphics.drawable.DrawableContainer          freq=     2 sFreq=     2 dex=1 referrers=2
+  android.media.RemoteControlClient$OnPlaybackPositionUpdateListener freq=     2 sFreq=     2 dex=1 referrers=1
+  android.text.method.SingleLineTransformationMethod   freq=     2 sFreq=     2 dex=1 referrers=1
+  android.view.OnReceiveContentListener                freq=     2 sFreq=     2 dex=1 referrers=1
+  android.view.View$OnCreateContextMenuListener        freq=     2 sFreq=     2 dex=1 referrers=1
+  android.view.WindowInsetsAnimation$Callback          freq=     2 sFreq=     2 dex=1 referrers=2
+  android.view.accessibility.AccessibilityNodeInfo$ExtraRenderingInfo freq=     2 sFreq=     2 dex=1 referrers=2
+  android.widget.SimpleCursorAdapter                   freq=     2 sFreq=     2 dex=1 referrers=1
+  android.R$id                                         freq=  1681 sFreq=     0 dex=2 referrers=387
+  android.telephony.TelephonyManager                   freq=   665 sFreq=     1 dex=13 referrers=130
+  android.app.Service                                  freq=   593 sFreq=     1 dex=15 referrers=196
+  android.os.BatteryManager                            freq=   536 sFreq=     1 dex=5 referrers=97
+  android.hardware.camera2.CameraCharacteristics       freq=   442 sFreq=     1 dex=5 referrers=38
+  android.opengl.EGL14                                 freq=   369 sFreq=     1 dex=6 referrers=74
+  android.net.wifi.WifiManager                         freq=   314 sFreq=     1 dex=14 referrers=52
+  android.util.Range                                   freq=   306 sFreq=     1 dex=7 referrers=41
+  android.hardware.camera2.CameraCharacteristics$Key   freq=   292 sFreq=     1 dex=5 referrers=36
+  android.view.View$OnLongClickListener                freq=   245 sFreq=     1 dex=15 referrers=146
+  android.hardware.Sensor                              freq=   204 sFreq=     1 dex=11 referrers=50
+  android.hardware.camera2.CameraManager               freq=   136 sFreq=     1 dex=5 referrers=21
+  android.appwidget.AppWidgetManager                   freq=   128 sFreq=     1 dex=3 referrers=25
+  android.app.AlarmManager                             freq=   122 sFreq=     1 dex=5 referrers=36
+  android.accounts.AccountManager                      freq=   117 sFreq=     1 dex=3 referrers=52
+  android.provider.DocumentsContract                   freq=   104 sFreq=     1 dex=7 referrers=50
+  android.hardware.SensorEvent                         freq=    83 sFreq=     1 dex=11 referrers=42
+  android.text.style.ReplacementSpan                   freq=    83 sFreq=     1 dex=13 referrers=79
+  android.view.Surface                                 freq=  1077 sFreq=     0 dex=12 referrers=236
+  android.app.ActivityManager$ProcessErrorStateInfo    freq=    74 sFreq=     1 dex=3 referrers=10
+  android.telephony.SubscriptionManager                freq=    64 sFreq=     1 dex=7 referrers=22
+  android.hardware.display.DisplayManager              freq=    53 sFreq=     1 dex=6 referrers=12
+  android.provider.Settings$System                     freq=    52 sFreq=     1 dex=11 referrers=35
+  android.app.job.JobScheduler                         freq=    45 sFreq=     1 dex=5 referrers=21
+  android.content.pm.SigningInfo                       freq=    40 sFreq=     1 dex=3 referrers=9
+  android.system.OsConstants                           freq=    37 sFreq=     1 dex=8 referrers=17
+  android.transition.TransitionManager                 freq=    36 sFreq=     1 dex=4 referrers=19
+  android.app.KeyguardManager                          freq=    33 sFreq=     1 dex=7 referrers=18
+  android.provider.Settings$Secure                     freq=    33 sFreq=     1 dex=9 referrers=23
+  android.accounts.NetworkErrorException               freq=    27 sFreq=     1 dex=1 referrers=16
+  android.text.style.TypefaceSpan                      freq=    27 sFreq=     1 dex=6 referrers=23
+  android.app.AlertDialog$Builder                      freq=  1027 sFreq=     0 dex=16 referrers=283
+  android.hardware.fingerprint.FingerprintManager      freq=    25 sFreq=     1 dex=1 referrers=9
+  android.media.projection.MediaProjectionManager      freq=    25 sFreq=     1 dex=4 referrers=7
+  android.app.DownloadManager$Query                    freq=    18 sFreq=     1 dex=2 referrers=4
+  android.hardware.fingerprint.FingerprintManager$AuthenticationCallback freq=    15 sFreq=     1 dex=1 referrers=10
+  android.app.ActivityManager$TaskDescription          freq=    12 sFreq=     1 dex=2 referrers=8
+  android.os.UserManager                               freq=    11 sFreq=     1 dex=2 referrers=7
+  android.net.nsd.NsdManager$DiscoveryListener         freq=    10 sFreq=     1 dex=1 referrers=4
+  android.hardware.usb.UsbManager                      freq=     6 sFreq=     1 dex=3 referrers=3
+  android.app.usage.UsageStatsManager                  freq=     5 sFreq=     1 dex=2 referrers=3
+  android.bluetooth.BluetoothManager                   freq=     5 sFreq=     1 dex=2 referrers=2
+  android.nfc.NfcManager                               freq=     5 sFreq=     1 dex=2 referrers=4
+  android.opengl.GLES20                                freq=  1003 sFreq=     0 dex=9 referrers=140
+  android.media.session.MediaSessionManager            freq=     3 sFreq=     1 dex=1 referrers=2
+  android.text.method.NumberKeyListener                freq=     2 sFreq=     1 dex=1 referrers=2
+  android.app.SearchManager                            freq=     1 sFreq=     1 dex=1 referrers=1
+  android.app.WallpaperManager                         freq=     1 sFreq=     1 dex=1 referrers=1
+  android.app.admin.DevicePolicyManager                freq=     1 sFreq=     1 dex=1 referrers=1
+  android.content.RestrictionsManager                  freq=     1 sFreq=     1 dex=1 referrers=1
+  android.content.pm.LauncherApps                      freq=     1 sFreq=     1 dex=1 referrers=1
+  android.hardware.ConsumerIrManager                   freq=     1 sFreq=     1 dex=1 referrers=1
+  android.hardware.input.InputManager                  freq=     1 sFreq=     1 dex=1 referrers=1
+  android.media.MediaRouter                            freq=     1 sFreq=     1 dex=1 referrers=1
+  android.media.tv.TvInputManager                      freq=     1 sFreq=     1 dex=1 referrers=1
+  android.net.wifi.p2p.WifiP2pManager                  freq=     1 sFreq=     1 dex=1 referrers=1
+  android.os.DropBoxManager                            freq=     1 sFreq=     1 dex=1 referrers=1
+  android.print.PrintManager                           freq=     1 sFreq=     1 dex=1 referrers=1
+  android.telecom.TelecomManager                       freq=     1 sFreq=     1 dex=1 referrers=1
+  android.view.WindowInsetsAnimationControlListener    freq=     1 sFreq=     1 dex=1 referrers=1
+  android.view.accessibility.CaptioningManager         freq=     1 sFreq=     1 dex=1 referrers=1
+  android.view.textservice.TextServicesManager         freq=     1 sFreq=     1 dex=1 referrers=1
+  android.graphics.SurfaceTexture                      freq=   931 sFreq=     0 dex=11 referrers=159
+  android.media.MediaCodec                             freq=   890 sFreq=     0 dex=5 referrers=96
+  android.net.NetworkInfo                              freq=   837 sFreq=     0 dex=15 referrers=172
+  android.media.MediaPlayer                            freq=   833 sFreq=     0 dex=10 referrers=57
+  android.widget.Toast                                 freq=   801 sFreq=     0 dex=16 referrers=157
+  android.media.MediaFormat                            freq=   749 sFreq=     0 dex=5 referrers=68
+  android.hardware.camera2.CaptureRequest$Builder      freq=   734 sFreq=     0 dex=4 referrers=25
+  android.view.TextureView                             freq=   729 sFreq=     0 dex=16 referrers=130
+  android.webkit.WebSettings                           freq=   658 sFreq=     0 dex=12 referrers=62
+  android.animation.AnimatorSet$Builder                freq=   631 sFreq=     0 dex=11 referrers=228
+  android.hardware.Camera                              freq=   604 sFreq=     0 dex=9 referrers=36
+  android.app.ProgressDialog                           freq=   600 sFreq=     0 dex=10 referrers=137
+  android.text.style.ForegroundColorSpan               freq=   581 sFreq=     0 dex=14 referrers=196
+  android.net.Network                                  freq=   569 sFreq=     0 dex=9 referrers=130
+  android.hardware.camera2.CaptureRequest$Key          freq=   493 sFreq=     0 dex=4 referrers=34
+  android.view.View$OnLayoutChangeListener             freq=   461 sFreq=     0 dex=16 referrers=201
+  android.accessibilityservice.AccessibilityServiceInfo freq=   458 sFreq=     0 dex=3 referrers=182
+  android.media.MediaMetadataRetriever                 freq=   448 sFreq=     0 dex=14 referrers=59
+  android.hardware.Camera$Parameters                   freq=   431 sFreq=     0 dex=7 referrers=32
+  android.opengl.EGLContext                            freq=   414 sFreq=     0 dex=7 referrers=82
+  android.os.CountDownTimer                            freq=   409 sFreq=     0 dex=13 referrers=171
+  android.webkit.WebResourceRequest                    freq=   392 sFreq=     0 dex=15 referrers=105
+  android.hardware.camera2.CaptureRequest              freq=   380 sFreq=     0 dex=4 referrers=43
+  android.util.ArrayMap                                freq=   372 sFreq=     0 dex=12 referrers=47
+  android.accounts.AbstractAccountAuthenticator        freq=   363 sFreq=     0 dex=2 referrers=120
+  android.media.MediaExtractor                         freq=   361 sFreq=     0 dex=4 referrers=18
+  android.webkit.WebViewClient                         freq=   360 sFreq=     0 dex=11 referrers=83
+  android.appwidget.AppWidgetProvider                  freq=   350 sFreq=     0 dex=1 referrers=224
+  android.app.ActivityManager$RecentTaskInfo           freq=   349 sFreq=     0 dex=3 referrers=212
+  android.view.GestureDetector                         freq=   337 sFreq=     0 dex=14 referrers=72
+  android.view.ViewOutlineProvider                     freq=   335 sFreq=     0 dex=15 referrers=247
+  android.app.ActivityManager$RunningTaskInfo          freq=   328 sFreq=     0 dex=5 referrers=241
+  android.accessibilityservice.AccessibilityService    freq=   323 sFreq=     0 dex=1 referrers=173
+  android.app.AlertDialog                              freq=   323 sFreq=     0 dex=16 referrers=154
+  android.widget.ViewFlipper                           freq=   323 sFreq=     0 dex=5 referrers=111
+  android.text.style.URLSpan                           freq=   317 sFreq=     0 dex=12 referrers=93
+  android.opengl.EGLDisplay                            freq=   304 sFreq=     0 dex=3 referrers=22
+  android.os.StatFs                                    freq=   298 sFreq=     0 dex=12 referrers=50
+  android.util.LruCache                                freq=   297 sFreq=     0 dex=13 referrers=55
+  android.view.SurfaceView                             freq=   284 sFreq=     0 dex=7 referrers=45
+  android.media.MediaCodec$BufferInfo                  freq=   279 sFreq=     0 dex=5 referrers=46
+  android.webkit.WebResourceResponse                   freq=   278 sFreq=     0 dex=14 referrers=73
+  android.opengl.EGLSurface                            freq=   272 sFreq=     0 dex=3 referrers=24
+  android.net.ConnectivityManager$NetworkCallback      freq=   266 sFreq=     0 dex=8 referrers=88
+  android.text.style.StrikethroughSpan                 freq=   261 sFreq=     0 dex=9 referrers=161
+  android.hardware.camera2.CameraDevice                freq=   254 sFreq=     0 dex=4 referrers=24
+  android.media.AudioRecord                            freq=   250 sFreq=     0 dex=6 referrers=22
+  android.graphics.Matrix$ScaleToFit                   freq=   246 sFreq=     0 dex=5 referrers=60
+  android.webkit.ValueCallback                         freq=   232 sFreq=     0 dex=14 referrers=86
+  android.view.ScaleGestureDetector                    freq=   230 sFreq=     0 dex=8 referrers=104
+  android.app.ApplicationExitInfo                      freq=   228 sFreq=     0 dex=3 referrers=21
+  android.hardware.camera2.CameraCaptureSession        freq=   226 sFreq=     0 dex=4 referrers=29
+  android.view.SurfaceHolder                           freq=   224 sFreq=     0 dex=9 referrers=58
+  android.app.ActivityManager$RunningServiceInfo       freq=   223 sFreq=     0 dex=5 referrers=155
+  android.media.MediaRecorder                          freq=   211 sFreq=     0 dex=7 referrers=12
+  android.net.NetworkRequest$Builder                   freq=   202 sFreq=     0 dex=7 referrers=31
+  android.text.style.StyleSpan                         freq=   195 sFreq=     0 dex=13 referrers=73
+  android.net.NetworkInfo$State                        freq=   193 sFreq=     0 dex=7 referrers=40
+  android.media.MediaCodecInfo                         freq=   191 sFreq=     0 dex=5 referrers=40
+  android.view.GestureDetector$SimpleOnGestureListener freq=   187 sFreq=     0 dex=15 referrers=78
+  android.net.wifi.ScanResult                          freq=   181 sFreq=     0 dex=5 referrers=37
+  android.net.wifi.WifiInfo                            freq=   181 sFreq=     0 dex=12 referrers=43
+  android.text.method.MovementMethod                   freq=   180 sFreq=     0 dex=14 referrers=92
+  android.webkit.WebChromeClient                       freq=   175 sFreq=     0 dex=9 referrers=49
+  android.util.JsonWriter                              freq=   173 sFreq=     0 dex=2 referrers=4
+  android.net.NetworkCapabilities                      freq=   172 sFreq=     0 dex=8 referrers=38
+  android.app.job.JobParameters                        freq=   171 sFreq=     0 dex=4 referrers=96
+  android.widget.SeekBar$OnSeekBarChangeListener       freq=   169 sFreq=     0 dex=15 referrers=82
+  android.widget.Filterable                            freq=   150 sFreq=     0 dex=1 referrers=108
+  android.view.animation.ScaleAnimation                freq=   144 sFreq=     0 dex=11 referrers=25
+  android.media.ImageReader                            freq=   142 sFreq=     0 dex=2 referrers=16
+  android.view.ScaleGestureDetector$SimpleOnScaleGestureListener freq=   142 sFreq=     0 dex=3 referrers=115
+  android.net.NetworkInfo$DetailedState                freq=   139 sFreq=     0 dex=5 referrers=36
+  android.accounts.Account                             freq=   137 sFreq=     0 dex=4 referrers=77
+  android.widget.TextView$BufferType                   freq=   137 sFreq=     0 dex=11 referrers=31
+  android.hardware.Camera$CameraInfo                   freq=   136 sFreq=     0 dex=7 referrers=20
+  android.media.MediaCodecInfo$CodecCapabilities       freq=   136 sFreq=     0 dex=5 referrers=35
+  android.os.ConditionVariable                         freq=   135 sFreq=     0 dex=4 referrers=27
+  android.media.AudioTrack                             freq=   134 sFreq=     0 dex=4 referrers=13
+  android.renderscript.RenderScript                    freq=   132 sFreq=     0 dex=7 referrers=42
+  android.media.AudioManager$OnAudioFocusChangeListener freq=   129 sFreq=     0 dex=11 referrers=37
+  android.text.method.LinkMovementMethod               freq=   126 sFreq=     0 dex=14 referrers=109
+  android.webkit.PermissionRequest                     freq=   120 sFreq=     0 dex=8 referrers=32
+  android.hardware.camera2.CameraCaptureSession$CaptureCallback freq=   116 sFreq=     0 dex=4 referrers=25
+  android.widget.Space                                 freq=   116 sFreq=     0 dex=9 referrers=45
+  android.widget.GridView                              freq=   114 sFreq=     0 dex=5 referrers=17
+  android.widget.RadioGroup                            freq=   114 sFreq=     0 dex=7 referrers=27
+  android.hardware.Camera$Size                         freq=   113 sFreq=     0 dex=7 referrers=18
+  android.media.ExifInterface                          freq=   110 sFreq=     0 dex=7 referrers=26
+  android.hardware.SensorEventListener                 freq=   108 sFreq=     0 dex=11 referrers=30
+  android.provider.MediaStore$Images$Media             freq=   108 sFreq=     0 dex=13 referrers=77
+  android.opengl.GLSurfaceView                         freq=   107 sFreq=     0 dex=4 referrers=31
+  android.renderscript.Allocation                      freq=   105 sFreq=     0 dex=7 referrers=19
+  android.view.OrientationEventListener                freq=   105 sFreq=     0 dex=8 referrers=48
+  android.view.View$OnFocusChangeListener              freq=   105 sFreq=     0 dex=14 referrers=67
+  android.widget.VideoView                             freq=   105 sFreq=     0 dex=2 referrers=13
+  android.app.DatePickerDialog                         freq=   104 sFreq=     0 dex=1 referrers=23
+  android.media.MediaDrm                               freq=   102 sFreq=     0 dex=4 referrers=6
+  android.media.projection.MediaProjection             freq=   102 sFreq=     0 dex=4 referrers=34
+  android.opengl.Matrix                                freq=    99 sFreq=     0 dex=7 referrers=20
+  android.graphics.drawable.shapes.RectShape           freq=    98 sFreq=     0 dex=5 referrers=11
+  android.location.LocationListener                    freq=    94 sFreq=     0 dex=9 referrers=32
+  android.view.animation.AlphaAnimation                freq=    92 sFreq=     0 dex=12 referrers=18
+  android.security.keystore.KeyGenParameterSpec$Builder freq=    88 sFreq=     0 dex=2 referrers=8
+  android.view.GestureDetector$OnGestureListener       freq=    88 sFreq=     0 dex=15 referrers=74
+  android.app.DownloadManager$Request                  freq=    83 sFreq=     0 dex=3 referrers=15
+  android.widget.TextSwitcher                          freq=    82 sFreq=     0 dex=4 referrers=11
+  android.service.notification.StatusBarNotification   freq=    80 sFreq=     0 dex=3 referrers=18
+  android.view.animation.TranslateAnimation            freq=    80 sFreq=     0 dex=10 referrers=16
+  android.widget.GridLayout                            freq=    79 sFreq=     0 dex=4 referrers=9
+  android.util.JsonReader                              freq=    78 sFreq=     0 dex=2 referrers=3
+  android.net.http.SslError                            freq=    77 sFreq=     0 dex=11 referrers=33
+  android.media.MediaCodecList                         freq=    75 sFreq=     0 dex=5 referrers=25
+  android.content.pm.ShortcutManager                   freq=    74 sFreq=     0 dex=3 referrers=3
+  android.text.style.ImageSpan                         freq=    74 sFreq=     0 dex=8 referrers=28
+  android.media.Image                                  freq=    73 sFreq=     0 dex=3 referrers=21
+  android.net.NetworkRequest                           freq=    73 sFreq=     0 dex=7 referrers=35
+  android.view.TouchDelegate                           freq=    73 sFreq=     0 dex=12 referrers=26
+  android.net.SSLCertificateSocketFactory              freq=    71 sFreq=     0 dex=3 referrers=42
+  android.app.job.JobInfo$Builder                      freq=    70 sFreq=     0 dex=5 referrers=33
+  android.graphics.BitmapRegionDecoder                 freq=    69 sFreq=     0 dex=5 referrers=9
+  android.text.Html                                    freq=    69 sFreq=     0 dex=11 referrers=47
+  android.util.JsonToken                               freq=    69 sFreq=     0 dex=2 referrers=11
+  android.webkit.SslErrorHandler                       freq=    69 sFreq=     0 dex=9 referrers=29
+  android.opengl.EGLConfig                             freq=    68 sFreq=     0 dex=3 referrers=10
+  android.net.TrafficStats                             freq=    66 sFreq=     0 dex=6 referrers=23
+  android.view.animation.PathInterpolator              freq=    65 sFreq=     0 dex=9 referrers=22
+  android.renderscript.ScriptIntrinsicBlur             freq=    64 sFreq=     0 dex=7 referrers=10
+  android.hardware.camera2.TotalCaptureResult          freq=    63 sFreq=     0 dex=3 referrers=19
+  android.hardware.camera2.params.StreamConfigurationMap freq=    63 sFreq=     0 dex=5 referrers=16
+  android.media.MediaCodecInfo$VideoCapabilities       freq=    63 sFreq=     0 dex=3 referrers=11
+  android.view.TextureView$SurfaceTextureListener      freq=    63 sFreq=     0 dex=10 referrers=24
+  android.animation.StateListAnimator                  freq=    62 sFreq=     0 dex=3 referrers=37
+  android.hardware.camera2.CaptureResult$Key           freq=    62 sFreq=     0 dex=3 referrers=15
+  android.net.LinkProperties                           freq=    61 sFreq=     0 dex=5 referrers=18
+  android.webkit.CookieSyncManager                     freq=    60 sFreq=     0 dex=6 referrers=20
+  android.widget.TextView$OnEditorActionListener       freq=    59 sFreq=     0 dex=12 referrers=45
+  android.accessibilityservice.GestureDescription$Builder freq=    58 sFreq=     0 dex=1 referrers=28
+  android.os.VibrationEffect                           freq=    58 sFreq=     0 dex=7 referrers=19
+  android.media.AudioDeviceInfo                        freq=    57 sFreq=     0 dex=3 referrers=9
+  android.bluetooth.BluetoothAdapter                   freq=    56 sFreq=     0 dex=6 referrers=15
+  android.util.SparseLongArray                         freq=    56 sFreq=     0 dex=3 referrers=8
+  android.location.GnssStatus                          freq=    55 sFreq=     0 dex=2 referrers=10
+  android.media.PlaybackParams                         freq=    55 sFreq=     0 dex=5 referrers=24
+  android.telephony.SignalStrength                     freq=    55 sFreq=     0 dex=6 referrers=11
+  android.util.Printer                                 freq=    55 sFreq=     0 dex=6 referrers=16
+  android.webkit.WebChromeClient$FileChooserParams     freq=    55 sFreq=     0 dex=7 referrers=25
+  android.security.KeyPairGeneratorSpec$Builder        freq=    52 sFreq=     0 dex=2 referrers=4
+  android.webkit.ConsoleMessage                        freq=    52 sFreq=     0 dex=8 referrers=22
+  android.app.job.JobInfo                              freq=    51 sFreq=     0 dex=5 referrers=25
+  android.text.style.CharacterStyle                    freq=    51 sFreq=     0 dex=6 referrers=27
+  android.app.SearchableInfo                           freq=    50 sFreq=     0 dex=1 referrers=3
+  android.graphics.SurfaceTexture$OnFrameAvailableListener freq=    49 sFreq=     0 dex=7 referrers=26
+  android.app.job.JobService                           freq=    48 sFreq=     0 dex=4 referrers=21
+  android.hardware.camera2.CaptureResult               freq=    48 sFreq=     0 dex=3 referrers=12
+  android.location.GpsStatus                           freq=    48 sFreq=     0 dex=3 referrers=9
+  android.provider.MediaStore$Video$Media              freq=    47 sFreq=     0 dex=11 referrers=42
+  android.media.SoundPool                              freq=    46 sFreq=     0 dex=2 referrers=4
+  android.webkit.JsResult                              freq=    46 sFreq=     0 dex=5 referrers=18
+  android.widget.AbsoluteLayout                        freq=    46 sFreq=     0 dex=2 referrers=5
+  android.os.ParcelFileDescriptor$AutoCloseInputStream freq=    45 sFreq=     0 dex=1 referrers=15
+  android.graphics.ColorMatrix                         freq=    44 sFreq=     0 dex=4 referrers=5
+  android.icu.text.NumberFormat                        freq=    44 sFreq=     0 dex=1 referrers=7
+  android.os.Debug                                     freq=    43 sFreq=     0 dex=10 referrers=31
+  android.provider.Settings$Global                     freq=    43 sFreq=     0 dex=13 referrers=32
+  android.view.Display$Mode                            freq=    43 sFreq=     0 dex=2 referrers=5
+  android.webkit.WebResourceError                      freq=    43 sFreq=     0 dex=10 referrers=21
+  android.media.MediaCrypto                            freq=    42 sFreq=     0 dex=5 referrers=30
+  android.text.style.RelativeSizeSpan                  freq=    42 sFreq=     0 dex=6 referrers=14
+  android.telephony.CellSignalStrengthLte              freq=    41 sFreq=     0 dex=3 referrers=5
+  android.text.format.DateUtils                        freq=    41 sFreq=     0 dex=7 referrers=41
+  android.app.DialogFragment                           freq=    40 sFreq=     0 dex=2 referrers=18
+  android.media.Image$Plane                            freq=    40 sFreq=     0 dex=3 referrers=12
+  android.media.MediaCodecInfo$CodecProfileLevel       freq=    40 sFreq=     0 dex=5 referrers=18
+  android.telephony.CellSignalStrengthNr               freq=    40 sFreq=     0 dex=2 referrers=3
+  android.graphics.RenderNode                          freq=    39 sFreq=     0 dex=1 referrers=2
+  android.os.MemoryFile                                freq=    39 sFreq=     0 dex=2 referrers=14
+  android.webkit.URLUtil                               freq=    39 sFreq=     0 dex=6 referrers=13
+  android.net.http.X509TrustManagerExtensions          freq=    38 sFreq=     0 dex=4 referrers=9
+  android.net.DhcpInfo                                 freq=    37 sFreq=     0 dex=7 referrers=22
+  android.view.FrameMetrics                            freq=    37 sFreq=     0 dex=1 referrers=6
+  android.media.MediaScannerConnection                 freq=    36 sFreq=     0 dex=1 referrers=6
+  android.webkit.WebBackForwardList                    freq=    36 sFreq=     0 dex=4 referrers=10
+  android.webkit.WebChromeClient$CustomViewCallback    freq=    36 sFreq=     0 dex=7 referrers=12
+  android.os.FileObserver                              freq=    35 sFreq=     0 dex=5 referrers=21
+  android.renderscript.Element                         freq=    35 sFreq=     0 dex=7 referrers=13
+  android.location.GpsSatellite                        freq=    34 sFreq=     0 dex=2 referrers=5
+  android.telephony.PhoneStateListener                 freq=    34 sFreq=     0 dex=5 referrers=21
+  android.util.Rational                                freq=    34 sFreq=     0 dex=5 referrers=6
+  android.widget.DatePicker                            freq=    34 sFreq=     0 dex=3 referrers=7
+  android.accessibilityservice.GestureDescription      freq=    33 sFreq=     0 dex=1 referrers=21
+  android.icu.text.DateFormat                          freq=    33 sFreq=     0 dex=1 referrers=3
+  android.graphics.drawable.PaintDrawable              freq=    32 sFreq=     0 dex=5 referrers=9
+  android.icu.text.DateFormat$Field                    freq=    32 sFreq=     0 dex=1 referrers=4
+  android.media.AudioFocusRequest$Builder              freq=    32 sFreq=     0 dex=3 referrers=8
+  android.graphics.pdf.PdfRenderer                     freq=    31 sFreq=     0 dex=2 referrers=2
+  android.view.SurfaceHolder$Callback                  freq=    31 sFreq=     0 dex=6 referrers=13
+  android.hardware.camera2.CameraCaptureSession$StateCallback freq=    30 sFreq=     0 dex=4 referrers=13
+  android.hardware.usb.UsbDevice                       freq=    30 sFreq=     0 dex=2 referrers=4
+  android.text.InputFilter$LengthFilter                freq=    30 sFreq=     0 dex=11 referrers=17
+  android.transition.TransitionValues                  freq=    30 sFreq=     0 dex=1 referrers=7
+  android.webkit.WebSettings$LayoutAlgorithm           freq=    30 sFreq=     0 dex=6 referrers=10
+  android.graphics.MaskFilter                          freq=    29 sFreq=     0 dex=5 referrers=13
+  android.webkit.GeolocationPermissions$Callback       freq=    29 sFreq=     0 dex=5 referrers=14
+  android.widget.PopupMenu                             freq=    29 sFreq=     0 dex=4 referrers=11
+  android.animation.IntEvaluator                       freq=    28 sFreq=     0 dex=2 referrers=15
+  android.hardware.display.VirtualDisplay              freq=    28 sFreq=     0 dex=3 referrers=11
+  android.icu.text.RuleBasedCollator                   freq=    28 sFreq=     0 dex=1 referrers=4
+  android.webkit.ServiceWorkerWebSettings              freq=    28 sFreq=     0 dex=1 referrers=11
+  android.widget.GridLayout$LayoutParams               freq=    28 sFreq=     0 dex=3 referrers=15
+  android.hardware.camera2.params.MeteringRectangle    freq=    27 sFreq=     0 dex=3 referrers=7
+  android.media.AudioFormat$Builder                    freq=    27 sFreq=     0 dex=3 referrers=3
+  android.media.MediaCodec$CodecException              freq=    27 sFreq=     0 dex=3 referrers=8
+  android.os.StrictMode$VmPolicy                       freq=    27 sFreq=     0 dex=4 referrers=6
+  android.webkit.WebSettings$TextSize                  freq=    27 sFreq=     0 dex=3 referrers=8
+  android.webkit.WebViewDatabase                       freq=    27 sFreq=     0 dex=1 referrers=2
+  android.icu.text.NumberFormat$Field                  freq=    26 sFreq=     0 dex=1 referrers=2
+  android.media.MediaPlayer$OnPreparedListener         freq=    26 sFreq=     0 dex=9 referrers=19
+  android.net.LocalSocket                              freq=    26 sFreq=     0 dex=1 referrers=3
+  android.net.ProxyInfo                                freq=    26 sFreq=     0 dex=2 referrers=6
+  android.telephony.CellIdentityLte                    freq=    26 sFreq=     0 dex=3 referrers=4
+  android.view.GestureDetector$OnDoubleTapListener     freq=    26 sFreq=     0 dex=4 referrers=11
+  android.widget.Toolbar                               freq=    26 sFreq=     0 dex=3 referrers=11
+  android.icu.util.ULocale$Builder                     freq=    25 sFreq=     0 dex=1 referrers=1
+  android.media.projection.MediaProjection$Callback    freq=    25 sFreq=     0 dex=4 referrers=11
+  android.telephony.CellIdentityCdma                   freq=    25 sFreq=     0 dex=3 referrers=10
+  android.accessibilityservice.GestureDescription$StrokeDescription freq=    24 sFreq=     0 dex=1 referrers=20
+  android.app.Presentation                             freq=    24 sFreq=     0 dex=1 referrers=9
+  android.webkit.HttpAuthHandler                       freq=    24 sFreq=     0 dex=6 referrers=17
+  android.hardware.camera2.CameraAccessException       freq=    23 sFreq=     0 dex=2 referrers=3
+  android.icu.text.DecimalFormat                       freq=    23 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.WifiManager$WifiLock                freq=    23 sFreq=     0 dex=3 referrers=6
+  android.telephony.CellInfo                           freq=    23 sFreq=     0 dex=2 referrers=3
+  android.text.style.BackgroundColorSpan               freq=    23 sFreq=     0 dex=6 referrers=12
+  android.accessibilityservice.AccessibilityService$GestureResultCallback freq=    22 sFreq=     0 dex=1 referrers=16
+  android.accounts.AccountAuthenticatorResponse        freq=    22 sFreq=     0 dex=2 referrers=21
+  android.app.PictureInPictureParams                   freq=    22 sFreq=     0 dex=1 referrers=8
+  android.graphics.ColorMatrixColorFilter              freq=    22 sFreq=     0 dex=5 referrers=7
+  android.graphics.pdf.PdfRenderer$Page                freq=    22 sFreq=     0 dex=2 referrers=2
+  android.hardware.camera2.CameraDevice$StateCallback  freq=    22 sFreq=     0 dex=4 referrers=12
+  android.media.MediaPlayer$OnCompletionListener       freq=    22 sFreq=     0 dex=9 referrers=20
+  android.webkit.DownloadListener                      freq=    22 sFreq=     0 dex=8 referrers=18
+  android.widget.ExpandableListView                    freq=    22 sFreq=     0 dex=3 referrers=3
+  android.graphics.BlurMaskFilter                      freq=    21 sFreq=     0 dex=5 referrers=11
+  android.media.AudioDeviceCallback                    freq=    21 sFreq=     0 dex=3 referrers=11
+  android.media.AudioFocusRequest                      freq=    21 sFreq=     0 dex=3 referrers=7
+  android.service.media.MediaBrowserService            freq=    21 sFreq=     0 dex=1 referrers=6
+  android.telephony.CellIdentityNr                     freq=    21 sFreq=     0 dex=1 referrers=2
+  android.text.DynamicLayout                           freq=    21 sFreq=     0 dex=5 referrers=11
+  android.util.ArraySet                                freq=    21 sFreq=     0 dex=1 referrers=10
+  android.view.animation.RotateAnimation               freq=    21 sFreq=     0 dex=4 referrers=8
+  android.webkit.RenderProcessGoneDetail               freq=    21 sFreq=     0 dex=5 referrers=12
+  android.widget.RadioGroup$OnCheckedChangeListener    freq=    21 sFreq=     0 dex=4 referrers=11
+  android.widget.ViewSwitcher                          freq=    21 sFreq=     0 dex=2 referrers=7
+  android.animation.FloatEvaluator                     freq=    20 sFreq=     0 dex=2 referrers=7
+  android.app.TaskStackBuilder                         freq=    20 sFreq=     0 dex=1 referrers=6
+  android.graphics.ImageDecoder                        freq=    20 sFreq=     0 dex=4 referrers=11
+  android.graphics.drawable.NinePatchDrawable          freq=    20 sFreq=     0 dex=6 referrers=9
+  android.location.Criteria                            freq=    20 sFreq=     0 dex=3 referrers=5
+  android.media.MediaPlayer$TrackInfo                  freq=    20 sFreq=     0 dex=2 referrers=4
+  android.media.ThumbnailUtils                         freq=    20 sFreq=     0 dex=7 referrers=18
+  android.net.wifi.WifiManager$WpsCallback             freq=    20 sFreq=     0 dex=1 referrers=11
+  android.telephony.CellIdentityWcdma                  freq=    20 sFreq=     0 dex=3 referrers=6
+  android.text.util.Linkify$MatchFilter                freq=    20 sFreq=     0 dex=1 referrers=4
+  android.view.Window$OnFrameMetricsAvailableListener  freq=    20 sFreq=     0 dex=1 referrers=3
+  android.webkit.ClientCertRequest                     freq=    20 sFreq=     0 dex=4 referrers=6
+  android.webkit.ConsoleMessage$MessageLevel           freq=    20 sFreq=     0 dex=3 referrers=7
+  android.webkit.WebView$HitTestResult                 freq=    20 sFreq=     0 dex=3 referrers=8
+  android.widget.AdapterViewFlipper                    freq=    20 sFreq=     0 dex=1 referrers=4
+  android.app.RemoteAction                             freq=    19 sFreq=     0 dex=1 referrers=3
+  android.telephony.SubscriptionInfo                   freq=    19 sFreq=     0 dex=4 referrers=7
+  android.widget.TabHost                               freq=    19 sFreq=     0 dex=1 referrers=1
+  android.animation.Animator$AnimatorPauseListener     freq=    18 sFreq=     0 dex=2 referrers=10
+  android.annotation.TargetApi                         freq=    18 sFreq=     0 dex=8 referrers=12
+  android.hardware.Camera$PreviewCallback              freq=    18 sFreq=     0 dex=6 referrers=8
+  android.icu.util.Calendar                            freq=    18 sFreq=     0 dex=1 referrers=3
+  android.media.AudioRecord$Builder                    freq=    18 sFreq=     0 dex=2 referrers=2
+  android.media.MediaCodec$CryptoInfo                  freq=    18 sFreq=     0 dex=1 referrers=4
+  android.media.audiofx.AcousticEchoCanceler           freq=    18 sFreq=     0 dex=1 referrers=1
+  android.media.audiofx.NoiseSuppressor                freq=    18 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.p2p.WifiP2pDevice                   freq=    18 sFreq=     0 dex=1 referrers=5
+  android.security.NetworkSecurityPolicy               freq=    18 sFreq=     0 dex=2 referrers=6
+  android.telephony.CellIdentityGsm                    freq=    18 sFreq=     0 dex=3 referrers=4
+  android.text.BoringLayout$Metrics                    freq=    18 sFreq=     0 dex=1 referrers=4
+  android.text.style.LeadingMarginSpan$Standard        freq=    18 sFreq=     0 dex=5 referrers=9
+  android.view.animation.LayoutAnimationController     freq=    18 sFreq=     0 dex=2 referrers=5
+  android.webkit.WebHistoryItem                        freq=    18 sFreq=     0 dex=2 referrers=4
+  android.webkit.WebSettings$RenderPriority            freq=    18 sFreq=     0 dex=4 referrers=6
+  android.app.ActivityManager$AppTask                  freq=    17 sFreq=     0 dex=3 referrers=11
+  android.content.ActivityNotFoundException            freq=    17 sFreq=     0 dex=7 referrers=11
+  android.graphics.Camera                              freq=    17 sFreq=     0 dex=2 referrers=8
+  android.media.AudioPlaybackCaptureConfiguration$Builder freq=    17 sFreq=     0 dex=2 referrers=3
+  android.media.MediaCodecInfo$EncoderCapabilities     freq=    17 sFreq=     0 dex=1 referrers=3
+  android.media.MediaPlayer$OnErrorListener            freq=    17 sFreq=     0 dex=9 referrers=15
+  android.net.http.SslCertificate                      freq=    17 sFreq=     0 dex=3 referrers=7
+  android.provider.MediaStore$Files                    freq=    17 sFreq=     0 dex=7 referrers=15
+  android.text.Html$ImageGetter                        freq=    17 sFreq=     0 dex=6 referrers=11
+  android.view.ViewGroup$OnHierarchyChangeListener     freq=    17 sFreq=     0 dex=2 referrers=7
+  android.content.ContentProviderOperation$Builder     freq=    16 sFreq=     0 dex=2 referrers=3
+  android.location.Address                             freq=    16 sFreq=     0 dex=4 referrers=6
+  android.location.GnssNavigationMessage               freq=    16 sFreq=     0 dex=1 referrers=5
+  android.telephony.ServiceState                       freq=    16 sFreq=     0 dex=6 referrers=9
+  android.text.Html$TagHandler                         freq=    16 sFreq=     0 dex=6 referrers=10
+  android.text.format.Time                             freq=    16 sFreq=     0 dex=3 referrers=4
+  android.text.util.Linkify                            freq=    16 sFreq=     0 dex=4 referrers=8
+  android.text.util.Linkify$TransformFilter            freq=    16 sFreq=     0 dex=1 referrers=2
+  android.widget.AbsoluteLayout$LayoutParams           freq=    16 sFreq=     0 dex=3 referrers=5
+  android.app.Notification$MediaStyle                  freq=    15 sFreq=     0 dex=1 referrers=3
+  android.app.TimePickerDialog$OnTimeSetListener       freq=    15 sFreq=     0 dex=1 referrers=6
+  android.graphics.ImageDecoder$Source                 freq=    15 sFreq=     0 dex=4 referrers=7
+  android.hardware.camera2.CaptureFailure              freq=    15 sFreq=     0 dex=3 referrers=12
+  android.icu.text.NumberingSystem                     freq=    15 sFreq=     0 dex=1 referrers=6
+  android.icu.util.TimeZone                            freq=    15 sFreq=     0 dex=2 referrers=4
+  android.location.LocationRequest$Builder             freq=    15 sFreq=     0 dex=1 referrers=1
+  android.media.MediaCodec$Callback                    freq=    15 sFreq=     0 dex=3 referrers=14
+  android.opengl.EGLExt                                freq=    15 sFreq=     0 dex=3 referrers=14
+  android.os.StrictMode$ThreadPolicy$Builder           freq=    15 sFreq=     0 dex=2 referrers=2
+  android.renderscript.Allocation$MipmapControl        freq=    15 sFreq=     0 dex=2 referrers=3
+  android.text.style.UnderlineSpan                     freq=    15 sFreq=     0 dex=5 referrers=9
+  android.view.ViewStub$OnInflateListener              freq=    15 sFreq=     0 dex=4 referrers=7
+  android.bluetooth.BluetoothProfile                   freq=    14 sFreq=     0 dex=1 referrers=3
+  android.content.pm.ConfigurationInfo                 freq=    14 sFreq=     0 dex=3 referrers=6
+  android.graphics.drawable.AnimatedImageDrawable      freq=    14 sFreq=     0 dex=2 referrers=2
+  android.media.AudioManager$AudioRecordingCallback    freq=    14 sFreq=     0 dex=2 referrers=11
+  android.media.audiofx.AudioEffect$Descriptor         freq=    14 sFreq=     0 dex=2 referrers=2
+  android.os.AsyncTask$Status                          freq=    14 sFreq=     0 dex=2 referrers=3
+  android.text.ParcelableSpan                          freq=    14 sFreq=     0 dex=3 referrers=8
+  android.view.ActionMode$Callback2                    freq=    14 sFreq=     0 dex=3 referrers=4
+  android.view.Display$HdrCapabilities                 freq=    14 sFreq=     0 dex=2 referrers=3
+  android.webkit.WebStorage$QuotaUpdater               freq=    14 sFreq=     0 dex=3 referrers=6
+  android.annotation.SuppressLint                      freq=    13 sFreq=     0 dex=6 referrers=13
+  android.icu.text.MeasureFormat                       freq=    13 sFreq=     0 dex=1 referrers=10
+  android.icu.util.MeasureUnit                         freq=    13 sFreq=     0 dex=1 referrers=1
+  android.location.GpsStatus$Listener                  freq=    13 sFreq=     0 dex=3 referrers=6
+  android.media.AudioRecordingConfiguration            freq=    13 sFreq=     0 dex=2 referrers=4
+  android.net.wifi.hotspot2.PasspointConfiguration     freq=    13 sFreq=     0 dex=1 referrers=5
+  android.os.StrictMode$VmPolicy$Builder               freq=    13 sFreq=     0 dex=1 referrers=1
+  android.telephony.CellLocation                       freq=    13 sFreq=     0 dex=4 referrers=6
+  android.util.Patterns                                freq=    13 sFreq=     0 dex=4 referrers=9
+  android.view.View$OnScrollChangeListener             freq=    13 sFreq=     0 dex=6 referrers=10
+  android.view.ViewStructure                           freq=    13 sFreq=     0 dex=1 referrers=4
+  android.widget.GridLayout$Spec                       freq=    13 sFreq=     0 dex=3 referrers=4
+  android.app.LoaderManager                            freq=    12 sFreq=     0 dex=1 referrers=7
+  android.hardware.Camera$Area                         freq=    12 sFreq=     0 dex=2 referrers=3
+  android.location.Geocoder                            freq=    12 sFreq=     0 dex=4 referrers=4
+  android.location.LocationRequest                     freq=    12 sFreq=     0 dex=1 referrers=6
+  android.media.CamcorderProfile                       freq=    12 sFreq=     0 dex=1 referrers=3
+  android.media.ImageReader$OnImageAvailableListener   freq=    12 sFreq=     0 dex=2 referrers=6
+  android.media.MediaDataSource                        freq=    12 sFreq=     0 dex=2 referrers=4
+  android.media.MediaMuxer                             freq=    12 sFreq=     0 dex=2 referrers=5
+  android.net.wifi.WifiManager$MulticastLock           freq=    12 sFreq=     0 dex=2 referrers=3
+  android.os.SharedMemory                              freq=    12 sFreq=     0 dex=1 referrers=1
+  android.provider.MediaStore$Audio$Media              freq=    12 sFreq=     0 dex=7 referrers=12
+  android.service.media.MediaBrowserService$Result     freq=    12 sFreq=     0 dex=1 referrers=5
+  android.telephony.cdma.CdmaCellLocation              freq=    12 sFreq=     0 dex=2 referrers=2
+  android.text.style.QuoteSpan                         freq=    12 sFreq=     0 dex=1 referrers=8
+  android.widget.GridLayout$Alignment                  freq=    12 sFreq=     0 dex=2 referrers=5
+  android.widget.TableLayout                           freq=    12 sFreq=     0 dex=1 referrers=1
+  android.app.job.JobWorkItem                          freq=    11 sFreq=     0 dex=1 referrers=3
+  android.app.usage.StorageStats                       freq=    11 sFreq=     0 dex=2 referrers=4
+  android.database.MergeCursor                         freq=    11 sFreq=     0 dex=2 referrers=5
+  android.hardware.Camera$AutoFocusCallback            freq=    11 sFreq=     0 dex=5 referrers=7
+  android.hardware.display.DisplayManager$DisplayListener freq=    11 sFreq=     0 dex=4 referrers=4
+  android.location.GnssMeasurementsEvent$Callback      freq=    11 sFreq=     0 dex=2 referrers=5
+  android.media.MediaPlayer$OnInfoListener             freq=    11 sFreq=     0 dex=7 referrers=9
+  android.net.LocalSocketAddress$Namespace             freq=    11 sFreq=     0 dex=1 referrers=6
+  android.net.TransportInfo                            freq=    11 sFreq=     0 dex=2 referrers=11
+  android.os.DeadObjectException                       freq=    11 sFreq=     0 dex=3 referrers=8
+  android.os.ParcelFileDescriptor$AutoCloseOutputStream freq=    11 sFreq=     0 dex=1 referrers=8
+  android.taobao.windvane.extra.uc.WVUCWebView         freq=    11 sFreq=     0 dex=1 referrers=1
+  android.telephony.CellInfoGsm                        freq=    11 sFreq=     0 dex=3 referrers=3
+  android.text.BoringLayout                            freq=    11 sFreq=     0 dex=1 referrers=3
+  android.util.AtomicFile                              freq=    11 sFreq=     0 dex=1 referrers=1
+  android.view.ScaleGestureDetector$OnScaleGestureListener freq=    11 sFreq=     0 dex=7 referrers=11
+  android.app.VoiceInteractor                          freq=    10 sFreq=     0 dex=1 referrers=6
+  android.app.assist.AssistContent                     freq=    10 sFreq=     0 dex=1 referrers=6
+  android.content.ContentProviderOperation             freq=    10 sFreq=     0 dex=2 referrers=5
+  android.media.AudioTimestamp                         freq=    10 sFreq=     0 dex=1 referrers=2
+  android.media.SoundPool$Builder                      freq=    10 sFreq=     0 dex=2 referrers=2
+  android.net.UrlQuerySanitizer                        freq=    10 sFreq=     0 dex=1 referrers=1
+  android.provider.MediaStore$Images$Thumbnails        freq=    10 sFreq=     0 dex=1 referrers=8
+  android.renderscript.RenderScript$RSMessageHandler   freq=    10 sFreq=     0 dex=1 referrers=7
+  android.security.keystore.KeyGenParameterSpec        freq=    10 sFreq=     0 dex=2 referrers=8
+  android.telephony.CellInfoLte                        freq=    10 sFreq=     0 dex=3 referrers=4
+  android.telephony.CellInfoWcdma                      freq=    10 sFreq=     0 dex=3 referrers=3
+  android.transition.Scene                             freq=    10 sFreq=     0 dex=1 referrers=6
+  android.app.usage.StorageStatsManager                freq=     9 sFreq=     0 dex=2 referrers=4
+  android.database.CursorWrapper                       freq=     9 sFreq=     0 dex=1 referrers=2
+  android.graphics.NinePatch                           freq=     9 sFreq=     0 dex=3 referrers=7
+  android.graphics.RegionIterator                      freq=     9 sFreq=     0 dex=1 referrers=2
+  android.hardware.SensorListener                      freq=     9 sFreq=     0 dex=1 referrers=5
+  android.hardware.camera2.CameraManager$AvailabilityCallback freq=     9 sFreq=     0 dex=1 referrers=2
+  android.hardware.display.VirtualDisplay$Callback     freq=     9 sFreq=     0 dex=3 referrers=5
+  android.media.MediaPlayer$OnVideoSizeChangedListener freq=     9 sFreq=     0 dex=5 referrers=7
+  android.net.LocalServerSocket                        freq=     9 sFreq=     0 dex=2 referrers=2
+  android.opengl.GLSurfaceView$Renderer                freq=     9 sFreq=     0 dex=3 referrers=9
+  android.provider.Settings                            freq=     9 sFreq=     0 dex=3 referrers=8
+  android.webkit.TracingConfig$Builder                 freq=     9 sFreq=     0 dex=1 referrers=1
+  android.webkit.WebIconDatabase                       freq=     9 sFreq=     0 dex=1 referrers=2
+  android.webkit.WebStorage                            freq=     9 sFreq=     0 dex=1 referrers=2
+  android.widget.ViewSwitcher$ViewFactory              freq=     9 sFreq=     0 dex=3 referrers=9
+  android.app.IntentService                            freq=     8 sFreq=     0 dex=3 referrers=5
+  android.content.pm.PermissionInfo                    freq=     8 sFreq=     0 dex=2 referrers=3
+  android.hardware.Camera$PictureCallback              freq=     8 sFreq=     0 dex=2 referrers=3
+  android.hardware.camera2.params.OutputConfiguration  freq=     8 sFreq=     0 dex=1 referrers=3
+  android.icu.text.MeasureFormat$FormatWidth           freq=     8 sFreq=     0 dex=1 referrers=2
+  android.location.GnssStatus$Callback                 freq=     8 sFreq=     0 dex=2 referrers=6
+  android.media.MediaDrm$KeyRequest                    freq=     8 sFreq=     0 dex=1 referrers=4
+  android.media.MediaDrm$ProvisionRequest              freq=     8 sFreq=     0 dex=1 referrers=4
+  android.media.MediaPlayer$OnBufferingUpdateListener  freq=     8 sFreq=     0 dex=4 referrers=6
+  android.media.MediaPlayer$OnSeekCompleteListener     freq=     8 sFreq=     0 dex=4 referrers=6
+  android.media.UnsupportedSchemeException             freq=     8 sFreq=     0 dex=1 referrers=4
+  android.media.audiofx.AudioEffect                    freq=     8 sFreq=     0 dex=2 referrers=2
+  android.net.DnsResolver                              freq=     8 sFreq=     0 dex=1 referrers=3
+  android.net.UrlQuerySanitizer$ParameterValuePair     freq=     8 sFreq=     0 dex=1 referrers=3
+  android.net.nsd.NsdServiceInfo                       freq=     8 sFreq=     0 dex=1 referrers=2
+  android.opengl.GLSurfaceView$EGLContextFactory       freq=     8 sFreq=     0 dex=1 referrers=3
+  android.opengl.GLSurfaceView$EGLWindowSurfaceFactory freq=     8 sFreq=     0 dex=1 referrers=2
+  android.os.Looper$Observer                           freq=     8 sFreq=     0 dex=1 referrers=2
+  android.provider.CalendarContract$Calendars          freq=     8 sFreq=     0 dex=1 referrers=5
+  android.provider.ContactsContract$Contacts           freq=     8 sFreq=     0 dex=1 referrers=7
+  android.provider.MediaStore$Downloads                freq=     8 sFreq=     0 dex=3 referrers=6
+  android.telephony.CellInfoNr                         freq=     8 sFreq=     0 dex=1 referrers=2
+  android.telephony.TelephonyManager$CellInfoCallback  freq=     8 sFreq=     0 dex=2 referrers=6
+  android.text.Editable$Factory                        freq=     8 sFreq=     0 dex=1 referrers=2
+  android.text.method.ScrollingMovementMethod          freq=     8 sFreq=     0 dex=3 referrers=7
+  android.transition.ChangeBounds                      freq=     8 sFreq=     0 dex=2 referrers=3
+  android.util.Half                                    freq=     8 sFreq=     0 dex=1 referrers=1
+  android.view.InputDevice                             freq=     8 sFreq=     0 dex=1 referrers=1
+  android.view.View$OnSystemUiVisibilityChangeListener freq=     8 sFreq=     0 dex=3 referrers=7
+  android.view.animation.GridLayoutAnimationController$AnimationParameters freq=     8 sFreq=     0 dex=1 referrers=1
+  android.webkit.WebView$WebViewTransport              freq=     8 sFreq=     0 dex=4 referrers=5
+  android.widget.MediaController                       freq=     8 sFreq=     0 dex=1 referrers=4
+  android.widget.TableRow                              freq=     8 sFreq=     0 dex=1 referrers=1
+  android.app.AppComponentFactory                      freq=     7 sFreq=     0 dex=1 referrers=2
+  android.app.Instrumentation$ActivityMonitor          freq=     7 sFreq=     0 dex=1 referrers=2
+  android.app.TimePickerDialog                         freq=     7 sFreq=     0 dex=1 referrers=4
+  android.bluetooth.BluetoothDevice                    freq=     7 sFreq=     0 dex=1 referrers=2
+  android.graphics.drawable.Animatable2$AnimationCallback freq=     7 sFreq=     0 dex=2 referrers=4
+  android.hardware.Camera$ErrorCallback                freq=     7 sFreq=     0 dex=5 referrers=5
+  android.icu.util.Currency                            freq=     7 sFreq=     0 dex=1 referrers=1
+  android.media.MediaCodecInfo$AudioCapabilities       freq=     7 sFreq=     0 dex=1 referrers=1
+  android.media.MediaScannerConnection$MediaScannerConnectionClient freq=     7 sFreq=     0 dex=1 referrers=6
+  android.media.RingtoneManager                        freq=     7 sFreq=     0 dex=2 referrers=4
+  android.net.RouteInfo                                freq=     7 sFreq=     0 dex=1 referrers=2
+  android.opengl.GLSurfaceView$EGLConfigChooser        freq=     7 sFreq=     0 dex=1 referrers=2
+  android.opengl.GLUtils                               freq=     7 sFreq=     0 dex=4 referrers=5
+  android.provider.MediaStore                          freq=     7 sFreq=     0 dex=3 referrers=4
+  android.telephony.CellIdentityTdscdma                freq=     7 sFreq=     0 dex=1 referrers=1
+  android.telephony.CellInfoCdma                       freq=     7 sFreq=     0 dex=3 referrers=3
+  android.text.format.Formatter                        freq=     7 sFreq=     0 dex=6 referrers=6
+  android.text.style.LeadingMarginSpan                 freq=     7 sFreq=     0 dex=2 referrers=6
+  android.transition.PathMotion                        freq=     7 sFreq=     0 dex=1 referrers=4
+  android.webkit.DateSorter                            freq=     7 sFreq=     0 dex=1 referrers=1
+  android.webkit.WebSettings$PluginState               freq=     7 sFreq=     0 dex=1 referrers=1
+  android.widget.Filter$FilterResults                  freq=     7 sFreq=     0 dex=1 referrers=1
+  android.widget.RatingBar$OnRatingBarChangeListener   freq=     7 sFreq=     0 dex=2 referrers=3
+  android.app.usage.NetworkStatsManager                freq=     6 sFreq=     0 dex=1 referrers=1
+  android.graphics.YuvImage                            freq=     6 sFreq=     0 dex=1 referrers=2
+  android.hardware.camera2.params.SessionConfiguration freq=     6 sFreq=     0 dex=1 referrers=2
+  android.location.OnNmeaMessageListener               freq=     6 sFreq=     0 dex=1 referrers=2
+  android.media.AudioFormat                            freq=     6 sFreq=     0 dex=3 referrers=3
+  android.media.MediaCodec$CryptoException             freq=     6 sFreq=     0 dex=1 referrers=5
+  android.media.MediaPlayer$OnTimedTextListener        freq=     6 sFreq=     0 dex=2 referrers=2
+  android.net.DnsResolver$Callback                     freq=     6 sFreq=     0 dex=1 referrers=3
+  android.net.LinkAddress                              freq=     6 sFreq=     0 dex=2 referrers=2
+  android.opengl.GLDebugHelper                         freq=     6 sFreq=     0 dex=4 referrers=6
+  android.os.BadParcelableException                    freq=     6 sFreq=     0 dex=5 referrers=6
+  android.preference.PreferenceActivity                freq=     6 sFreq=     0 dex=1 referrers=2
+  android.renderscript.Type                            freq=     6 sFreq=     0 dex=3 referrers=3
+  android.telephony.CellSignalStrengthCdma             freq=     6 sFreq=     0 dex=3 referrers=3
+  android.telephony.CellSignalStrengthWcdma            freq=     6 sFreq=     0 dex=3 referrers=3
+  android.telephony.HwTelephonyManager                 freq=     6 sFreq=     0 dex=1 referrers=3
+  android.text.TextUtils$SimpleStringSplitter          freq=     6 sFreq=     0 dex=1 referrers=2
+  android.text.method.DigitsKeyListener                freq=     6 sFreq=     0 dex=2 referrers=3
+  android.transition.ChangeTransform                   freq=     6 sFreq=     0 dex=1 referrers=3
+  android.util.Xml$Encoding                            freq=     6 sFreq=     0 dex=1 referrers=2
+  android.view.accessibility.AccessibilityManager$AccessibilityStateChangeListener freq=     6 sFreq=     0 dex=2 referrers=4
+  android.view.inputmethod.InputMethodInfo             freq=     6 sFreq=     0 dex=2 referrers=2
+  android.webkit.GeolocationPermissions                freq=     6 sFreq=     0 dex=1 referrers=2
+  android.webkit.ServiceWorkerClient                   freq=     6 sFreq=     0 dex=1 referrers=5
+  android.webkit.ServiceWorkerController               freq=     6 sFreq=     0 dex=1 referrers=1
+  android.accounts.AccountManagerCallback              freq=     5 sFreq=     0 dex=1 referrers=5
+  android.accounts.AccountManagerFuture                freq=     5 sFreq=     0 dex=1 referrers=5
+  android.app.AlarmManager$AlarmClockInfo              freq=     5 sFreq=     0 dex=1 referrers=2
+  android.app.Fragment$SavedState                      freq=     5 sFreq=     0 dex=1 referrers=1
+  android.app.Instrumentation$ActivityResult           freq=     5 sFreq=     0 dex=1 referrers=1
+  android.app.usage.NetworkStats$Bucket                freq=     5 sFreq=     0 dex=1 referrers=1
+  android.graphics.CornerPathEffect                    freq=     5 sFreq=     0 dex=2 referrers=4
+  android.graphics.ImageDecoder$OnHeaderDecodedListener freq=     5 sFreq=     0 dex=1 referrers=4
+  android.hardware.Camera$FaceDetectionListener        freq=     5 sFreq=     0 dex=2 referrers=3
+  android.icu.text.CompactDecimalFormat$CompactStyle   freq=     5 sFreq=     0 dex=1 referrers=3
+  android.icu.util.Measure                             freq=     5 sFreq=     0 dex=1 referrers=2
+  android.location.GpsStatus$NmeaListener              freq=     5 sFreq=     0 dex=2 referrers=2
+  android.media.TimedText                              freq=     5 sFreq=     0 dex=2 referrers=3
+  android.net.wifi.SupplicantState                     freq=     5 sFreq=     0 dex=2 referrers=4
+  android.net.wifi.WifiManager$SuggestionConnectionStatusListener freq=     5 sFreq=     0 dex=1 referrers=2
+  android.opengl.GLSurfaceView$GLWrapper               freq=     5 sFreq=     0 dex=1 referrers=2
+  android.provider.MediaStore$Video$Thumbnails         freq=     5 sFreq=     0 dex=3 referrers=3
+  android.provider.Settings$SettingNotFoundException   freq=     5 sFreq=     0 dex=4 referrers=5
+  android.telecom.PhoneAccountHandle                   freq=     5 sFreq=     0 dex=1 referrers=2
+  android.telephony.CellInfoTdscdma                    freq=     5 sFreq=     0 dex=1 referrers=1
+  android.telephony.CellSignalStrengthTdscdma          freq=     5 sFreq=     0 dex=2 referrers=3
+  android.text.style.BulletSpan                        freq=     5 sFreq=     0 dex=1 referrers=2
+  android.text.style.SuperscriptSpan                   freq=     5 sFreq=     0 dex=2 referrers=3
+  android.view.PixelCopy$OnPixelCopyFinishedListener   freq=     5 sFreq=     0 dex=1 referrers=5
+  android.view.ViewAnimationUtils                      freq=     5 sFreq=     0 dex=2 referrers=3
+  android.webkit.TracingController                     freq=     5 sFreq=     0 dex=1 referrers=1
+  android.webkit.WebSettings$ZoomDensity               freq=     5 sFreq=     0 dex=1 referrers=1
+  android.webkit.WebViewRenderProcess                  freq=     5 sFreq=     0 dex=1 referrers=3
+  android.webkit.WebViewRenderProcessClient            freq=     5 sFreq=     0 dex=1 referrers=3
+  android.widget.ListPopupWindow                       freq=     5 sFreq=     0 dex=2 referrers=3
+  android.widget.PopupMenu$OnMenuItemClickListener     freq=     5 sFreq=     0 dex=1 referrers=5
+  android.widget.ShareActionProvider                   freq=     5 sFreq=     0 dex=1 referrers=1
+  android.content.UriPermission                        freq=     4 sFreq=     0 dex=1 referrers=1
+  android.graphics.BlendModeColorFilter                freq=     4 sFreq=     0 dex=2 referrers=2
+  android.graphics.RenderEffect                        freq=     4 sFreq=     0 dex=1 referrers=2
+  android.hardware.Camera$OnZoomChangeListener         freq=     4 sFreq=     0 dex=3 referrers=4
+  android.hardware.Camera$ShutterCallback              freq=     4 sFreq=     0 dex=2 referrers=3
+  android.hardware.camera2.DngCreator                  freq=     4 sFreq=     0 dex=1 referrers=2
+  android.location.GnssNavigationMessage$Callback      freq=     4 sFreq=     0 dex=1 referrers=3
+  android.media.AudioPlaybackCaptureConfiguration      freq=     4 sFreq=     0 dex=2 referrers=2
+  android.media.MediaDrm$OnExpirationUpdateListener    freq=     4 sFreq=     0 dex=1 referrers=2
+  android.media.MediaDrm$OnKeyStatusChangeListener     freq=     4 sFreq=     0 dex=1 referrers=2
+  android.media.MediaRecorder$OnErrorListener          freq=     4 sFreq=     0 dex=4 referrers=4
+  android.net.IpPrefix                                 freq=     4 sFreq=     0 dex=1 referrers=1
+  android.net.ssl.SSLSockets                           freq=     4 sFreq=     0 dex=2 referrers=2
+  android.net.wifi.WifiConfiguration                   freq=     4 sFreq=     0 dex=2 referrers=2
+  android.net.wifi.p2p.WifiP2pGroup                    freq=     4 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.rtt.RangingRequest$Builder          freq=     4 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.rtt.RangingResult                   freq=     4 sFreq=     0 dex=1 referrers=1
+  android.nfc.NfcAdapter                               freq=     4 sFreq=     0 dex=2 referrers=2
+  android.os.storage.StorageVolume                     freq=     4 sFreq=     0 dex=2 referrers=2
+  android.provider.CalendarContract$Events             freq=     4 sFreq=     0 dex=1 referrers=4
+  android.security.KeyPairGeneratorSpec                freq=     4 sFreq=     0 dex=2 referrers=4
+  android.telephony.CellSignalStrengthGsm              freq=     4 sFreq=     0 dex=2 referrers=2
+  android.telephony.gsm.GsmCellLocation                freq=     4 sFreq=     0 dex=1 referrers=1
+  android.text.style.LineHeightSpan                    freq=     4 sFreq=     0 dex=1 referrers=4
+  android.transition.Fade                              freq=     4 sFreq=     0 dex=2 referrers=2
+  android.view.SurfaceHolder$Callback2                 freq=     4 sFreq=     0 dex=1 referrers=1
+  android.view.WindowMetrics                           freq=     4 sFreq=     0 dex=2 referrers=2
+  android.view.accessibility.AccessibilityManager$TouchExplorationStateChangeListener freq=     4 sFreq=     0 dex=2 referrers=2
+  android.view.animation.AnticipateOvershootInterpolator freq=     4 sFreq=     0 dex=2 referrers=2
+  android.widget.FilterQueryProvider                   freq=     4 sFreq=     0 dex=1 referrers=1
+  android.widget.TabHost$OnTabChangeListener           freq=     4 sFreq=     0 dex=1 referrers=1
+  android.widget.TabHost$TabSpec                       freq=     4 sFreq=     0 dex=1 referrers=1
+  android.widget.TabWidget                             freq=     4 sFreq=     0 dex=1 referrers=1
+  android.widget.TableLayout$LayoutParams              freq=     4 sFreq=     0 dex=1 referrers=2
+  android.app.Activity$TranslucentConversionListener   freq=     3 sFreq=     0 dex=1 referrers=3
+  android.app.DatePickerDialog$OnDateSetListener       freq=     3 sFreq=     0 dex=1 referrers=1
+  android.app.Notification$DecoratedMediaCustomViewStyle freq=     3 sFreq=     0 dex=1 referrers=2
+  android.app.usage.NetworkStats                       freq=     3 sFreq=     0 dex=1 referrers=1
+  android.graphics.drawable.RotateDrawable             freq=     3 sFreq=     0 dex=1 referrers=1
+  android.hardware.Camera$Face                         freq=     3 sFreq=     0 dex=1 referrers=3
+  android.hardware.SensorDirectChannel                 freq=     3 sFreq=     0 dex=1 referrers=2
+  android.hardware.SensorManager$DynamicSensorCallback freq=     3 sFreq=     0 dex=1 referrers=1
+  android.hardware.usb.UsbConfiguration                freq=     3 sFreq=     0 dex=1 referrers=1
+  android.hardware.usb.UsbInterface                    freq=     3 sFreq=     0 dex=2 referrers=2
+  android.icu.text.CompactDecimalFormat                freq=     3 sFreq=     0 dex=1 referrers=2
+  android.icu.text.SimpleDateFormat                    freq=     3 sFreq=     0 dex=1 referrers=2
+  android.icu.util.ULocale$Category                    freq=     3 sFreq=     0 dex=1 referrers=1
+  android.media.AudioManager$AudioPlaybackCallback     freq=     3 sFreq=     0 dex=1 referrers=2
+  android.media.MediaCodec$CryptoInfo$Pattern          freq=     3 sFreq=     0 dex=1 referrers=1
+  android.media.MediaDrm$OnEventListener               freq=     3 sFreq=     0 dex=1 referrers=2
+  android.media.MediaRecorder$OnInfoListener           freq=     3 sFreq=     0 dex=3 referrers=3
+  android.net.LocalSocketAddress                       freq=     3 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.WifiManager$LocalOnlyHotspotCallback freq=     3 sFreq=     0 dex=1 referrers=2
+  android.net.wifi.rtt.WifiRttManager                  freq=     3 sFreq=     0 dex=1 referrers=1
+  android.os.SystemProperties                          freq=     3 sFreq=     0 dex=2 referrers=3
+  android.provider.ContactsContract                    freq=     3 sFreq=     0 dex=2 referrers=3
+  android.provider.ContactsContract$CommonDataKinds$Phone freq=     3 sFreq=     0 dex=2 referrers=2
+  android.telephony.mbms.ServiceInfo                   freq=     3 sFreq=     0 dex=1 referrers=2
+  android.transition.Visibility                        freq=     3 sFreq=     0 dex=1 referrers=2
+  android.util.Base64OutputStream                      freq=     3 sFreq=     0 dex=1 referrers=1
+  android.view.PixelCopy                               freq=     3 sFreq=     0 dex=1 referrers=3
+  android.view.WindowInsets$Type                       freq=     3 sFreq=     0 dex=1 referrers=1
+  android.view.inputmethod.BaseInputConnection         freq=     3 sFreq=     0 dex=1 referrers=1
+  android.widget.AutoCompleteTextView$OnDismissListener freq=     3 sFreq=     0 dex=1 referrers=3
+  android.widget.DatePicker$OnDateChangedListener      freq=     3 sFreq=     0 dex=2 referrers=3
+  android.animation.TypeConverter                      freq=     2 sFreq=     0 dex=1 referrers=2
+  android.annotation.NonNull                           freq=     2 sFreq=     0 dex=1 referrers=2
+  android.app.Application$OnProvideAssistDataListener  freq=     2 sFreq=     0 dex=1 referrers=1
+  android.app.FragmentManager$FragmentLifecycleCallbacks freq=     2 sFreq=     0 dex=1 referrers=2
+  android.app.LocaleManager                            freq=     2 sFreq=     0 dex=1 referrers=1
+  android.app.Notification$Extender                    freq=     2 sFreq=     0 dex=1 referrers=1
+  android.app.job.JobServiceEngine                     freq=     2 sFreq=     0 dex=1 referrers=1
+  android.content.pm.PackageInstaller                  freq=     2 sFreq=     0 dex=1 referrers=1
+  android.content.pm.PackageInstaller$SessionInfo      freq=     2 sFreq=     0 dex=1 referrers=1
+  android.graphics.PaintFlagsDrawFilter                freq=     2 sFreq=     0 dex=1 referrers=1
+  android.graphics.RecordingCanvas                     freq=     2 sFreq=     0 dex=1 referrers=1
+  android.graphics.drawable.ShapeDrawable$ShaderFactory freq=     2 sFreq=     0 dex=1 referrers=2
+  android.graphics.drawable.TransitionDrawable         freq=     2 sFreq=     0 dex=1 referrers=1
+  android.hardware.TriggerEventListener                freq=     2 sFreq=     0 dex=1 referrers=1
+  android.hardware.camera2.CameraExtensionCharacteristics freq=     2 sFreq=     0 dex=1 referrers=1
+  android.hardware.camera2.params.Face                 freq=     2 sFreq=     0 dex=1 referrers=1
+  android.hardware.fingerprint.FingerprintManager$AuthenticationResult freq=     2 sFreq=     0 dex=1 referrers=1
+  android.icu.lang.UCharacter                          freq=     2 sFreq=     0 dex=1 referrers=1
+  android.icu.text.Collator                            freq=     2 sFreq=     0 dex=1 referrers=2
+  android.location.LocationProvider                    freq=     2 sFreq=     0 dex=2 referrers=2
+  android.media.DeniedByServerException                freq=     2 sFreq=     0 dex=1 referrers=2
+  android.media.SoundPool$OnLoadCompleteListener       freq=     2 sFreq=     0 dex=2 referrers=2
+  android.net.ConnectivityManager$OnNetworkActiveListener freq=     2 sFreq=     0 dex=1 referrers=1
+  android.net.http.SslCertificate$DName                freq=     2 sFreq=     0 dex=1 referrers=1
+  android.net.nsd.NsdManager$RegistrationListener      freq=     2 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.WifiManager$ScanResultsCallback     freq=     2 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.rtt.RangingRequest                  freq=     2 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.rtt.RangingResultCallback           freq=     2 sFreq=     0 dex=1 referrers=2
+  android.os.FileUtils                                 freq=     2 sFreq=     0 dex=1 referrers=2
+  android.taobao.windvane.extra.uc.WVUCWebViewClient   freq=     2 sFreq=     0 dex=1 referrers=1
+  android.telephony.CellIdentity                       freq=     2 sFreq=     0 dex=1 referrers=2
+  android.telephony.CellSignalStrength                 freq=     2 sFreq=     0 dex=1 referrers=2
+  android.telephony.IccOpenLogicalChannelResponse      freq=     2 sFreq=     0 dex=1 referrers=2
+  android.text.ClipboardManager                        freq=     2 sFreq=     0 dex=1 referrers=1
+  android.text.method.QwertyKeyListener                freq=     2 sFreq=     0 dex=1 referrers=1
+  android.text.style.SubscriptSpan                     freq=     2 sFreq=     0 dex=1 referrers=1
+  android.transition.ArcMotion                         freq=     2 sFreq=     0 dex=1 referrers=2
+  android.util.Base64InputStream                       freq=     2 sFreq=     0 dex=1 referrers=1
+  android.view.View$OnHoverListener                    freq=     2 sFreq=     0 dex=1 referrers=1
+  android.view.animation.CycleInterpolator             freq=     2 sFreq=     0 dex=1 referrers=1
+  android.view.animation.LayoutAnimationController$AnimationParameters freq=     2 sFreq=     0 dex=1 referrers=1
+  android.view.autofill.AutofillId                     freq=     2 sFreq=     0 dex=1 referrers=1
+  android.webkit.JavascriptInterface                   freq=     2 sFreq=     0 dex=2 referrers=2
+  android.webkit.TracingConfig                         freq=     2 sFreq=     0 dex=1 referrers=1
+  android.webkit.WebView$PictureListener               freq=     2 sFreq=     0 dex=1 referrers=1
+  android.widget.BaseExpandableListAdapter             freq=     2 sFreq=     0 dex=1 referrers=2
+  android.widget.Filter                                freq=     2 sFreq=     0 dex=2 referrers=2
+  android.widget.TableRow$LayoutParams                 freq=     2 sFreq=     0 dex=1 referrers=1
+  android.widget.TimePicker                            freq=     2 sFreq=     0 dex=1 referrers=2
+  android.annotation.Nullable                          freq=     1 sFreq=     0 dex=1 referrers=1
+  android.bluetooth.BluetoothProfile$ServiceListener   freq=     1 sFreq=     0 dex=1 referrers=1
+  android.content.ContentProvider$PipeDataWriter       freq=     1 sFreq=     0 dex=1 referrers=1
+  android.content.IntentSender$OnFinished              freq=     1 sFreq=     0 dex=1 referrers=1
+  android.graphics.DrawFilter                          freq=     1 sFreq=     0 dex=1 referrers=1
+  android.graphics.ImageDecoder$ImageInfo              freq=     1 sFreq=     0 dex=1 referrers=1
+  android.graphics.ImageFormat                         freq=     1 sFreq=     0 dex=1 referrers=1
+  android.hardware.camera2.params.RggbChannelVector    freq=     1 sFreq=     0 dex=1 referrers=1
+  android.media.MediaDrmException                      freq=     1 sFreq=     0 dex=1 referrers=1
+  android.media.NotProvisionedException                freq=     1 sFreq=     0 dex=1 referrers=1
+  android.net.InetAddresses                            freq=     1 sFreq=     0 dex=1 referrers=1
+  android.net.wifi.WpsInfo                             freq=     1 sFreq=     0 dex=1 referrers=1
+  android.opengl.GLException                           freq=     1 sFreq=     0 dex=1 referrers=1
+  android.os.OutcomeReceiver                           freq=     1 sFreq=     0 dex=1 referrers=1
+  android.os.TransactionTooLargeException              freq=     1 sFreq=     0 dex=1 referrers=1
+  android.os.strictmode.Violation                      freq=     1 sFreq=     0 dex=1 referrers=1
+  android.provider.CalendarContract$Reminders          freq=     1 sFreq=     0 dex=1 referrers=1
+  android.provider.CallLog$Calls                       freq=     1 sFreq=     0 dex=1 referrers=1
+  android.service.media.MediaBrowserService$BrowserRoot freq=     1 sFreq=     0 dex=1 referrers=1
+  android.telephony.NetworkScan                        freq=     1 sFreq=     0 dex=1 referrers=1
+  android.telephony.NetworkScanRequest                 freq=     1 sFreq=     0 dex=1 referrers=1
+  android.telephony.TelephonyManager$UssdResponseCallback freq=     1 sFreq=     0 dex=1 referrers=1
+  android.telephony.TelephonyScanManager$NetworkScanCallback freq=     1 sFreq=     0 dex=1 referrers=1
+  android.telephony.VisualVoicemailSmsFilterSettings   freq=     1 sFreq=     0 dex=1 referrers=1
+  android.text.format.DateFormat                       freq=     1 sFreq=     0 dex=1 referrers=1
+  android.util.EventLog                                freq=     1 sFreq=     0 dex=1 referrers=1
+  android.view.textclassifier.TextLinks                freq=     1 sFreq=     0 dex=1 referrers=1
+  android.webkit.SafeBrowsingResponse                  freq=     1 sFreq=     0 dex=1 referrers=1
+  android.webkit.WebIconDatabase$IconListener          freq=     1 sFreq=     0 dex=1 referrers=1
+  android.webkit.WebView$FindListener                  freq=     1 sFreq=     0 dex=1 referrers=1
+  android.widget.AbsSeekBar                            freq=     1 sFreq=     0 dex=1 referrers=1
+  android.widget.ExpandableListAdapter                 freq=     1 sFreq=     0 dex=1 referrers=1
+  android.widget.MediaController$MediaPlayerControl    freq=     1 sFreq=     0 dex=1 referrers=1
+  android.widget.PopupMenu$OnDismissListener           freq=     1 sFreq=     0 dex=1 referrers=1
+  android.widget.TabHost$TabContentFactory             freq=     1 sFreq=     0 dex=1 referrers=1
+  android.widget.WrapperListAdapter                    freq=     1 sFreq=     0 dex=1 referrers=1
+
+-- 成员级需求 top 60（startup 频次优先；cov=Y 表示已有）--
+  class                                    member                               freq  sFreq cov
+  android.os.Build$VERSION                 f:SDK_INT                            4043    901 Y
+  android.os.Parcel                        recycle(0)                           3011    427 Y
+  android.util.SparseIntArray              append(2)                             441    400 Y
+  android.os.Parcel                        obtain(0)                            1215    157 Y
+  android.view.View                        getLayoutParams(0)                   1675    153 Y
+  android.os.Parcel                        readInt(0)                           2829    131 Y
+  android.content.Context                  getResources(0)                      1741    128 Y
+  android.os.Parcel                        writeInt(1)                          2864    127 Y
+  android.view.ViewGroup                   getChildAt(1)                         791    114 Y
+  android.view.ViewGroup                   getContext(0)                        3337    110 -
+  android.content.res.TypedArray           getFloat(2)                           223    103 Y
+  android.content.res.TypedArray           getResourceId(2)                      271    100 Y
+  android.content.res.TypedArray           getInt(2)                             319     93 Y
+  android.view.ViewGroup                   getChildCount(0)                      732     91 Y
+  android.text.TextUtils                   isEmpty(1)                          16165     89 Y
+  android.os.Parcel                        writeInterfaceToken(1)                595     87 Y
+  android.os.IBinder                       transact(4)                           589     86 -
+  android.os.Parcel                        enforceInterface(1)                   550     83 Y
+  android.graphics.Rect                    f:left                                894     79 Y
+  android.view.View                        getParent(0)                          723     78 Y
+  android.content.res.TypedArray           recycle(0)                            529     78 Y
+  android.os.Bundle                        <init>(0)                            1770     77 -
+  android.view.View$MeasureSpec            makeMeasureSpec(2)                    516     75 Y
+  android.graphics.Rect                    f:top                                 646     68 Y
+  android.os.Parcel                        readException(0)                      567     68 Y
+  android.os.Parcel                        writeNoException(0)                   516     68 Y
+  android.os.Parcelable$Creator            createFromParcel(1)                   250     64 -
+  android.content.res.TypedArray           getString(1)                          143     62 Y
+  android.graphics.Rect                    <init>(0)                             639     61 -
+  android.content.res.TypedArray           getDimensionPixelSize(2)              339     58 Y
+  android.graphics.Rect                    f:right                               599     57 Y
+  android.view.View                        getId(0)                              619     56 Y
+  android.os.Bundle                        containsKey(1)                        176     52 Y
+  android.view.View                        getVisibility(0)                      681     51 Y
+  android.graphics.Rect                    f:bottom                              898     49 Y
+  android.content.res.TypedArray           getBoolean(2)                         350     49 Y
+  android.content.Context                  obtainStyledAttributes(2)             318     49 Y
+  android.os.Bundle                        remove(1)                             154     49 Y
+  android.content.res.TypedArray           getDimension(2)                       317     48 Y
+  android.view.View                        animate(0)                            342     47 Y
+  android.view.View                        getLeft(0)                            275     45 Y
+  android.view.View                        setVisibility(1)                     2912     43 Y
+  android.view.View                        getTop(0)                             369     43 Y
+  android.view.ViewGroup                   getPaddingLeft(0)                     184     43 Y
+  android.view.ViewGroup                   findViewById(1)                      2747     42 -
+  android.view.Window                      getDecorView(0)                       574     41 Y
+  android.content.res.Resources            getDisplayMetrics(0)                  661     40 -
+  android.view.ViewGroup                   getPaddingTop(0)                      190     40 Y
+  android.os.Parcel                        writeString(1)                       7188     39 Y
+  android.view.View                        getBottom(0)                          188     39 Y
+  android.os.Bundle                        getParcelable(1)                      548     38 -
+  android.graphics.Canvas                  restoreToCount(1)                     140     38 Y
+  android.content.ContentProvider          getContext(0)                          58     38 Y
+  android.util.SparseArray                 put(2)                               5319     37 Y
+  android.os.Bundle                        getString(1)                         3150     37 Y
+  android.os.Handler                       post(1)                              1293     37 Y
+  android.view.View                        getMeasuredWidth(0)                   421     37 Y
+  android.os.Bundle                        putInt(2)                            1193     35 Y
+  android.view.ViewGroup                   getHeight(0)                          455     35 -
+  android.content.res.TypedArray           hasValue(1)                           237     35 Y
+
+-- 成员级缺口 top 60（已覆盖类内缺失成员；按 sFreq）--
+  android.view.ViewGroup                   getContext(0)                        3337    110 [builtin]
+  android.os.IBinder                       transact(4)                           589     86 [lib]
+  android.os.Bundle                        <init>(0)                            1770     77 [lib]
+  android.os.Parcelable$Creator            createFromParcel(1)                   250     64 [lib]
+  android.graphics.Rect                    <init>(0)                             639     61 [lib]
+  android.view.ViewGroup                   findViewById(1)                      2747     42 [builtin]
+  android.content.res.Resources            getDisplayMetrics(0)                  661     40 [builtin]
+  android.os.Bundle                        getParcelable(1)                      548     38 [lib]
+  android.view.ViewGroup                   getHeight(0)                          455     35 [builtin]
+  android.util.TypedValue                  <init>(0)                              64     34 [lib]
+  android.os.Bundle                        putParcelable(2)                      485     33 [lib]
+  android.util.SparseArray                 <init>(0)                             384     31 [lib]
+  android.view.ViewGroup                   getWidth(0)                           412     30 [builtin]
+  android.widget.FrameLayout               getHeight(0)                          310     28 [lib]
+  android.os.Bundle                        f:CREATOR                              58     28 [lib]
+  android.os.Bundle                        <init>(1)                             103     27 [lib]
+  android.widget.FrameLayout               getScrollY(0)                          69     26 [lib]
+  android.content.res.Resources            getConfiguration(0)                   241     23 [builtin]
+  android.os.Bundle                        writeToParcel(2)                       46     23 [lib]
+  android.graphics.Paint                   <init>(0)                             549     22 [lib]
+  android.app.Activity                     getWindow(0)                          587     21 [builtin]
+  android.widget.FrameLayout               getChildCount(0)                      204     21 [lib]
+  android.view.ViewGroup$MarginLayoutParams f:width                               192     20 [builtin]
+  android.content.res.Resources            getDimensionPixelSize(1)              421     19 [builtin]
+  android.widget.LinearLayout$LayoutParams f:leftMargin                           94     19 [builtin]
+  android.content.res.Resources$Theme      resolveAttribute(3)                    47     19 [builtin]
+  android.util.SparseIntArray              <init>(0)                             390     18 [lib]
+  android.view.ViewGroup$MarginLayoutParams f:height                              211     18 [builtin]
+  android.view.ViewGroup                   getMeasuredWidth(0)                   104     16 [builtin]
+  android.widget.ImageView                 setVisibility(1)                     1500     15 [lib]
+  android.view.ViewGroup                   setVisibility(1)                     1229     15 [builtin]
+  android.os.IInterface                    asBinder(0)                            86     15 [lib]
+  android.widget.TextView                  getContext(0)                         477     14 [builtin]
+  android.util.Pair                        <init>(2)                             392     14 [lib]
+  android.graphics.Matrix                  <init>(0)                             338     14 [lib]
+  android.widget.FrameLayout               getChildAt(1)                         226     14 [lib]
+  android.view.ViewGroup                   getParent(0)                          223     14 [builtin]
+  android.content.ComponentName            <init>(2)                             165     14 [lib]
+  android.view.ViewGroup                   invalidate(0)                         103     14 [builtin]
+  android.widget.LinearLayout$LayoutParams f:width                                92     14 [builtin]
+  android.widget.LinearLayout$LayoutParams f:height                               68     13 [builtin]
+  android.view.ViewGroup                   getScrollX(0)                          55     13 [builtin]
+  android.view.ViewGroup                   setMeasuredDimension(2)                55     13 [builtin]
+  android.text.TextPaint                   getTypeface(0)                         18     13 [lib]
+  android.content.res.Resources            getResourceName(1)                    489     12 [builtin]
+  android.animation.AnimatorListenerAdapter <init>(0)                             485     12 [lib]
+  android.view.ViewParent                  requestDisallowInterceptTouchEvent(1)    270     12 [builtin]
+  android.view.ViewGroup                   getMeasuredHeight(0)                  135     12 [builtin]
+  android.view.ViewGroup                   removeCallbacks(1)                     67     12 [builtin]
+  android.util.AttributeSet                getPositionDescription(0)              12     12 [lib]
+  android.widget.CompoundButton            requestLayout(0)                       12     12 [lib]
+  android.content.Intent                   putExtra(2)                          1614     11 [builtin]
+  android.widget.LinearLayout$LayoutParams f:topMargin                           501     11 [builtin]
+  android.graphics.RectF                   <init>(0)                             372     11 [lib]
+  android.view.ViewGroup                   getId(0)                              134     11 [builtin]
+  android.util.Log                         isLoggable(2)                         119     11 [builtin]
+  android.widget.LinearLayout$LayoutParams f:weight                               82     11 [builtin]
+  android.widget.LinearLayout$LayoutParams f:rightMargin                          76     11 [builtin]
+  android.widget.TextView                  getMeasuredWidth(0)                    74     11 [builtin]
+  android.content.res.Resources            getResourceEntryName(1)                34     11 [builtin]
+
+-- const-string 类名引用（反射/Class.forName 面）top 30 --
+  android.intent.action.VIEW                                   84
+  android.os.SystemProperties                                  80
+  android.support.v4.media.session.IMediaSession               55
+  android.net.conn.CONNECTIVITY_CHANGE                         54
+  android.app.ActivityThread                                   46
+  android.permission.ACCESS_NETWORK_STATE                      39
+  android.permission.READ_PHONE_STATE                          34
+  android.permission.WRITE_EXTERNAL_STORAGE                    28
+  android.permission.CAMERA                                    28
+  android.intent.action.BATTERY_CHANGED                        27
+  android.intent.extra.TEXT                                    27
+  android.permission.RECORD_AUDIO                              24
+  android.permission.ACCESS_FINE_LOCATION                      23
+  android.permission.ACCESS_COARSE_LOCATION                    19
+  android.intent.action.SCREEN_ON                              19
+  android.permission.ACCESS_WIFI_STATE                         18
+  android.permission.READ_EXTERNAL_STORAGE                     18
+  android.intent.action.SEND                                   18
+  android.intent.category.DEFAULT                              18
+  android.intent.action.SCREEN_OFF                             18
+  android.support.v4.media.session.IMediaControllerCallback    17
+  android.permission.READ_MEDIA_IMAGES                         17
+  android.intent.extra.SUBJECT                                 12
+  android.support.customtabs.ICustomTabsService                12
+  android.intent.action.MAIN                                   11
+  android.permission.CHANGE_NETWORK_STATE                      11
+  android.permission.INTERNET                                  10
+  android.net.wifi.STATE_CHANGE                                10
+  android.settings.APPLICATION_DETAILS_SETTINGS                10
+  android.intent.category.BROWSABLE                            10
+
+-- 缺口成员精确签名（dex proto 全形；startup 频次 top 40）--
+  android.view.ViewGroup.getContext()Landroid/content/Context;
+  android.os.IBinder.transact(ILandroid/os/Parcel;Landroid/os/Parcel;I)Z
+  android.os.Bundle.<init>()V
+  android.os.Parcelable$Creator.createFromParcel(Landroid/os/Parcel;)Ljava/lang/Object;
+  android.graphics.Rect.<init>()V
+  android.view.ViewGroup.findViewById(I)Landroid/view/View;
+  android.content.res.Resources.getDisplayMetrics()Landroid/util/DisplayMetrics;
+  android.os.Bundle.getParcelable(Ljava/lang/String;)Landroid/os/Parcelable;
+  android.view.ViewGroup.getHeight()I
+  android.util.TypedValue.<init>()V
+  android.os.Bundle.putParcelable(Ljava/lang/String;Landroid/os/Parcelable;)V
+  android.util.SparseArray.<init>()V
+  android.view.ViewGroup.getWidth()I
+  android.widget.FrameLayout.getHeight()I
+  android.os.Bundle.f:CREATOR:Landroid/os/Parcelable$Creator;
+  android.os.Bundle.<init>(I)V|<init>(Landroid/os/Bundle;)V
+  android.widget.FrameLayout.getScrollY()I
+  android.content.res.Resources.getConfiguration()Landroid/content/res/Configuration;
+  android.os.Bundle.writeToParcel(Landroid/os/Parcel;I)V
+  android.graphics.Paint.<init>()V
+  android.app.Activity.getWindow()Landroid/view/Window;
+  android.widget.FrameLayout.getChildCount()I
+  android.view.ViewGroup$MarginLayoutParams.f:width:I
+  android.content.res.Resources.getDimensionPixelSize(I)I
+  android.widget.LinearLayout$LayoutParams.f:leftMargin:I
+  android.content.res.Resources$Theme.resolveAttribute(ILandroid/util/TypedValue;Z)Z
+  android.util.SparseIntArray.<init>()V
+  android.view.ViewGroup$MarginLayoutParams.f:height:I
+  android.view.ViewGroup.getMeasuredWidth()I
+  android.widget.ImageView.setVisibility(I)V
+  android.view.ViewGroup.setVisibility(I)V
+  android.os.IInterface.asBinder()Landroid/os/IBinder;
+  android.widget.TextView.getContext()Landroid/content/Context;
+  android.util.Pair.<init>(Ljava/lang/Object;Ljava/lang/Object;)V
+  android.graphics.Matrix.<init>()V
+  android.widget.FrameLayout.getChildAt(I)Landroid/view/View;
+  android.view.ViewGroup.getParent()Landroid/view/ViewParent;
+  android.content.ComponentName.<init>(Landroid/content/Context;Ljava/lang/Class;)V|<init>(Landroid/content/Context;Ljava/lang/String;)V|<init>(Ljava/lang/String;Ljava/lang/String;)V
+  android.view.ViewGroup.invalidate()V
+  android.widget.LinearLayout$LayoutParams.f:width:I
+
+-- 覆盖率口径 --
+类级: builtin_classes.def 注册集 ∪ runtime-libs java 源 ∪ C++ MakeClass 注册面。
+成员级: runtime-libs 方法/字段声明（名+元数）∪ C++ AddIntrinsic*/Add*Field 名。
+builtin 成员抽取为正则尽力（类级权威、成员级 best-effort）。

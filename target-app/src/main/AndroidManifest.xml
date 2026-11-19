@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.coke.target.BIND_BOUND" />
+
+    <application
+        android:name=".RuntimeLifecycleApp"
+        android:allowBackup="false"
+        android:label="Minimal Android">
+        <provider
+            android:name=".RuntimeLifecycleProvider"
+            android:authorities="com.coke.target.lifecycle"
+            android:exported="false" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="Minimal Android">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".RuntimeService"
+            android:exported="false" />
+        <service
+            android:name=".RuntimeBoundService"
+            android:exported="false"
+            android:permission="com.coke.target.BIND_BOUND"
+            android:process=":bound" />
+    </application>
+</manifest>

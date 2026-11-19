@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xml_title">XML 资源布局</string>
+    <string name="xml_netty_action">启动 Netty HTTP 服务器</string>
+    <string name="netty_pending">Netty HTTP 未启动</string>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider PathStrategy 消费面 fixture：七 tag 全覆盖（name/path 属性）。
+     external-files/cache/media-path 对应 Context.getExternal*Dirs 消费面
+     （GDT/androidx FileProvider 真实调用形：type=null，path=基下子目录） -->
+<paths>
+    <files-path name="files" path="d1" />
+    <cache-path name="cache" path="c1" />
+    <external-path name="ext" path="e1" />
+    <root-path name="root" path="r1" />
+    <external-files-path name="efiles" path="ef1" />
+    <external-cache-path name="ecache" path="ec1" />
+    <external-media-path name="emedia" path="em1" />
+</paths>
