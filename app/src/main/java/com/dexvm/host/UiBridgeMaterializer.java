@@ -5,6 +5,7 @@ import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.Log;
 import android.util.TypedValue;
@@ -268,8 +269,53 @@ public final class UiBridgeMaterializer {
                     if (++shown >= 40) break;
                 }
                 Log.i(TAG, "host sizes=" + shown + sb);
+                StringBuilder tree = new StringBuilder();
+                dumpHostTree(root, tree, 0, new int[] {70});
+                Log.i(TAG, "host tree" + tree);
+                // 全屏覆盖层归因：面积 >=500x500 且有非零背景色的宿主 View。
+                StringBuilder cover = new StringBuilder();
+                for (View v : views.values()) {
+                    if (v.getVisibility() != View.VISIBLE) continue;
+                    if (v.getWidth() < 500 || v.getHeight() < 500) continue;
+                    Drawable d = v.getBackground();
+                    int c = d instanceof ColorDrawable ? ((ColorDrawable) d).getColor() : 0;
+                    if (c == 0) continue;
+                    String nodeCls = "?";
+                    for (Node n : nodes.values()) {
+                        if (views.get(n.objectId) == v) {
+                            nodeCls = n.className;
+                            break;
+                        }
+                    }
+                    cover.append(" [").append(v.getClass().getSimpleName()).append("<")
+                            .append(nodeCls).append("> ").append(v.getWidth()).append("x")
+                            .append(v.getHeight()).append(" bg=#").append(Integer.toHexString(c))
+                            .append(" a=").append(v.getAlpha()).append(" kids=")
+                            .append(v instanceof ViewGroup ? ((ViewGroup) v).getChildCount() : -1)
+                            .append("]");
+                }
+                Log.i(TAG, "full-bg views" + cover);
             }
         }, 800);
+    }
+
+    /** 宿主物化树 z-order 诊断：class/尺寸/可见性/alpha/背景色。 */
+    private void dumpHostTree(View v, StringBuilder sb, int depth, int[] budget) {
+        if (v == null || budget[0] <= 0) return;
+        budget[0]--;
+        int bg = 0;
+        Drawable d = v.getBackground();
+        if (d instanceof ColorDrawable) bg = ((ColorDrawable) d).getColor();
+        for (int i = 0; i < depth; i++) sb.append("  ");
+        sb.append(v.getClass().getSimpleName()).append(" ").append(v.getWidth()).append("x")
+                .append(v.getHeight()).append(" vis=").append(v.getVisibility()).append(" a=")
+                .append(v.getAlpha()).append(" bg=#").append(Integer.toHexString(bg)).append('\n');
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                dumpHostTree(g.getChildAt(i), sb, depth + 1, budget);
+            }
+        }
     }
 
     /** 布局诊断：几何收敛度（bounds 有效 vs 交宿主布局的节点）。 */
