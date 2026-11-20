@@ -967,6 +967,10 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
           }
         }
         add(kPropProgress, PropValue::Int(ViewI(view, "mProgress")));
+        // CompoundButton/CheckedTextView 选中态（宿主可勾选控件状态同步）。
+        if (FindField(view->klass, "mChecked") != nullptr) {
+          add(kPropChecked, PropValue::Bool(ViewI(view, "mChecked") != 0));
+        }
         VString* video_path = reinterpret_cast<VString*>(ViewRef(view, "mVideoPath"));
         if (video_path != nullptr && video_path->length > 0) {
           add(kPropVideoPath,

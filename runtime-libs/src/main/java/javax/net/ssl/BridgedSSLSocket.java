@@ -17,8 +17,11 @@ import java.util.Map;
 /**
  * guest SSLSocket 薄壳：字节流与生命周期经 {@link BridgedTls} 桥到宿主真 TLS
  * 栈。createSocket(Socket s, host, port, autoClose) 的原始 guest socket 不复用
- * （宿主对目标 host:port 新建 TLS 连接，DNS/SNI/证书校验全部宿主完成）；autoClose
- * 语义由 factory 在建立桥接后关闭原始 socket 承接。
+ * 于 TLS 字节流（宿主对目标 host:port 新建 TLS 连接，DNS/SNI/证书校验全部宿主
+ * 完成），但**必须保持打开**直到本 socket 关闭：OkHttp 的
+ * RealConnection.isHealthy() 以 rawSocket.isClosed 判定连接健康度，提前关闭
+ * 会让刚建立的连接被判为不健康而丢弃（表现为逐个重试 IPv6 路由后
+ * "Connection refused"）。autoClose 语义在 close() 时承接。
  *
  * 握手在宿主 OPEN 内完成，startHandshake 为 no-op；SO_TIMEOUT 映射宿主读超时。
  */
@@ -65,6 +68,10 @@ final class BridgedSSLSocket extends SSLSocket {
     private boolean enableSessionCreation = true;
     private String[] enabledProtocols = DEFAULT_PROTOCOLS.clone();
     private String[] enabledCipherSuites = DEFAULT_CIPHER_SUITES.clone();
+    // createSocket(Socket,...) 包装的 guest 明文 socket（TLS 字节流不走它；
+    // 保留打开状态供上层健康检查，autoClose 时随本 socket 一并关闭）。
+    private Socket wrappedSocket;
+    private boolean closeWrappedSocket;
 
     BridgedSSLSocket() {
         super();
@@ -81,6 +88,15 @@ final class BridgedSSLSocket extends SSLSocket {
         String metadata = BridgedTls.open(target, port, connectTimeoutMs);
         parseMetadata(metadata, target, port);
         this.connected = true;
+    }
+
+    /**
+     * 接管 createSocket(Socket,...) 的原始 guest socket。它保持打开（OkHttp
+     * 健康检查读取其 isClosed），autoClose 在本 socket 关闭时关闭它。
+     */
+    void attachWrappedSocket(Socket raw, boolean autoClose) {
+        this.wrappedSocket = raw == this ? null : raw;
+        this.closeWrappedSocket = autoClose;
     }
 
     private void parseMetadata(String metadata, String target, int targetPort) throws IOException {
@@ -235,6 +251,14 @@ final class BridgedSSLSocket extends SSLSocket {
         if (closed) return;
         closed = true;
         if (session != null) session.invalidate();
+        Socket raw = wrappedSocket;
+        wrappedSocket = null;
+        if (raw != null && closeWrappedSocket) {
+            try {
+                raw.close();
+            } catch (Throwable ignored) {
+            }
+        }
         long current = handle;
         handle = 0;
         if (current != 0) {

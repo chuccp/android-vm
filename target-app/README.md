@@ -11,13 +11,13 @@ v2 顶层模块（与 `app` / `runtime-libs` 同级），**源码入库、APK �
 - 产物：`target-app/build/outputs/apk/debug/target-app-debug.apk`（8,693,706 字节，debug 签名，
   5 个 dex 约 11.7k 类，4 个 .so）。**APK 二进制不入 git**（根 `.gitignore` 含 `*.apk`），
   一律现构现出
-- 构建配置：`target-app/build.gradle.kts`——三方库版本内联（AGP 9.5.1 / Gradle 9.6 / JDK 25
+- 构建配置：`target-app/build.gradle.kts`——三方库版本内联（AGP 9.3.0 / Gradle 9.6 / JDK 25
   实证组合），`compileSdk { version = release(37) }` 新 DSL，CMake 3.22.1 构建加固 .so
   （abiFilters x86_64 + arm64-v8a），`META-INF/io.netty.versions.properties` 排除
 
 ## 考面清单
 
-36 个 fixture 类（35 Java + 1 Kotlin，`com.coke.target.*`）+ 2 个加固模拟 .so + 9 个三方库。
+36 个 fixture 类（35 Java + 1 Kotlin，`com.coke.target.*`）+ 2 个加固模拟 .so + 12 个三方库。
 分发契约：**没有 in-APK 注册表**——按 (owner 描述符 `Lcom/coke/target/<Class>;`, 方法名, JVM 签名) 选择
 fixture 方法并断言其返回的**哨兵 int**（VM 少实现一个语义就返回错值）；`MainActivity` 另有一条
 设备侧直跑线（构造 Runnable 线程 + 静态调用，覆盖 UI/媒体/服务场景）。
@@ -62,12 +62,19 @@ fixture 方法并断言其返回的**哨兵 int**（VM 少实现一个语义就�
 
 fastjson 1.2.83、fastjson2 2.0.26、gson 2.11.0、jackson-databind 2.18.2、
 kotlinx-coroutines-core 1.10.2、netty 4.1.118.Final（buffer/codec/codec-http/handler/transport）、
-okio 3.6.0、rxjava 3.1.10、slf4j-api 2.0.16、commons-lang3 3.17.0、androidx.constraintlayout 2.0.4。
+okio 3.18.2、okhttp 4.12.0、rxjava 3.1.10、slf4j-api 2.0.16、commons-lang3 3.17.0、androidx.constraintlayout 2.0.4。
 dex 规模 5 个 classes*.dex（三方占大头）。
 
 ### 资源/媒体面
 
 - `res/layout/runtime_primary.xml`：**ConstraintLayout 根 + `<include>`**、约 15 个 id；`runtime_footer.xml`（ScrollView 面板）；`runtime_compiled.xml`（最小编译二进制 XML 探针）
+- `runtime_footer.xml` 的 **Extended widget gallery**：CheckBox / RadioGroup+RadioButton / ToggleButton /
+  SeekBar / ImageButton（XML 膨胀 + 点击 performClick 回灌 + checked/progress 状态桥接）；ListView
+  （`ArrayAdapter` item 行物化 + 测量/堆叠）与 Spinner（点击循环选中项 + OnItemSelectedListener）；
+  `Fetch Baidu HTML (OkHttp)` 按钮经 OkHttp 4.12（lib `javax.net.ssl` → 宿主 `TlsBridge` 真 TLS）
+  请求 https://www.baidu.com/，把响应源码（HTTP 状态 + 截断后的 HTML）写进下方输出文本框；
+  `Show VM dialog` 按钮经 lib `android.app.Dialog` + `Window` 弹出宿主叠加层（dim 遮罩 + 多根物化 +
+  Dismiss 回灌）。footer 的 ScrollView 由宿主物化为真 `android.widget.ScrollView`（内容可滚动）
 - `res/layout-land/runtime_primary.xml`：横屏限定符变体；`values-zh`、`values-night`、`values/styles.xml`：区域/夜间/样式限定符
 - `res/raw/runtime_tone.wav` + `runtime_video.mp4`、`res/drawable/runtime_photo.jpg`：MediaPlayer/VideoView/资源解码
 - `assets/activity_runtime.xml`：AssetManager 流读取
@@ -100,7 +107,7 @@ dex 规模 5 个 classes*.dex（三方占大头）。
 前置：Android SDK（platforms `android-37.0`、build-tools 36.0.0、NDK 27.2+/28.2、CMake 3.22.1）、JDK 25、Gradle 9.6.0。
 
 ```bash
-# 仓库根工程内直接构建（AGP 9.5.1 由根 build.gradle.kts apply false 备好）
+# 仓库根工程内直接构建（AGP 9.3.0 由根 build.gradle.kts apply false 备好）
 gradle :target-app:assembleDebug            # 或 ./gradlew :target-app:assembleDebug
 # 产物：target-app/build/outputs/apk/debug/target-app-debug.apk
 ```
@@ -108,7 +115,7 @@ gradle :target-app:assembleDebug            # 或 ./gradlew :target-app:assemble
 - Kotlin 由 AGP 9 内建 Kotlin 编译（无需声明 kotlin 插件，`.kt` 自动处理）
 - 三方依赖版本在 `target-app/build.gradle.kts` 内联（已验证组合：fastjson 1.2.83 / fastjson2 2.0.26 /
   gson 2.11.0 / jackson-databind 2.18.2 / kotlinx-coroutines-core 1.10.2 / netty 4.1.118.Final /
-  okio 3.6.0 / rxjava 3.1.10 / slf4j-api 2.0.16 / commons-lang3 3.17.0 / constraintlayout 2.0.4）
+  okio 3.18.2 / okhttp 4.12.0 / rxjava 3.1.10 / slf4j-api 2.0.16 / commons-lang3 3.17.0 / constraintlayout 2.0.4）
 - 如需代理拉取依赖：`export GRADLE_OPTS="-DsocksProxyHost=127.0.0.1 -DsocksProxyPort=10808 -DsocksProxyVersion=5"`
 
 ## 迁移纪要（收官迁移轮，已完成）

@@ -1610,6 +1610,21 @@ void AddField(VClass* k, const char* name, const char* type, uint32_t byte_off) 
 // 方法骨架 + intrinsic 槽位（同 framework_builtins AddIntrinsicMethod 形态）
 void AddIntrinsic(VClass* k, const char* name, std::vector<std::string> params,
                   const char* ret, uint32_t access, dexvm::runtime::IntrinsicFn fn) {
+  // 同签名已存在（ApplyApiStubs 先登记的 ReturnNull/NoOp 补桩）时以真实实现
+  // 覆盖：查找按方法表顺序命中第一条，追加会留下补桩优先的死实现
+  // （PackageManager.getPackagesForUid 返回 null 的根因）。
+  for (std::vector<dexvm::runtime::VMethod>* list :
+       {&k->direct_methods, &k->virtual_methods}) {
+    for (auto& m : *list) {
+      if (m.name == name && m.param_types == params && m.return_type == ret) {
+        m.declaring = k;
+        m.access_flags = access;
+        m.code = nullptr;
+        m.native_fn = ToIntrinsicSlot(fn);
+        return;
+      }
+    }
+  }
   dexvm::runtime::VMethod m;
   m.declaring = k;
   m.name = name;

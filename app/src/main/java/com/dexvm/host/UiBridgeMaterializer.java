@@ -12,15 +12,21 @@ import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.RadioButton;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.ToggleButton;
 import android.widget.VideoView;
 
 import java.io.File;
@@ -92,6 +98,7 @@ public final class UiBridgeMaterializer {
     private static final int PROP_LAYOUT_WEIGHT = 24;
     private static final int PROP_LAYOUT_KIND = 25;
     private static final int PROP_WINDOW_DIM = 26;
+    private static final int PROP_CHECKED = 27;
 
     private static final int TYPE_INT = 1;
     private static final int TYPE_FLOAT = 2;
@@ -602,6 +609,13 @@ public final class UiBridgeMaterializer {
             if (root.getParent() instanceof ViewGroup) {
                 ((ViewGroup) root.getParent()).removeView(root);
             }
+            // 旧根曾按 540x960 逻辑窗口由 MainActivity 缩放铺满内容区；移入
+            // overlay wrapper 后 wrapper 自身才是缩放面，旧根必须回到未缩放态，
+            // 否则宿主缩放与旧根缩放叠加（弹 Dialog 后整屏放大 ~1.44x 的根因）。
+            root.setScaleX(1f);
+            root.setScaleY(1f);
+            root.setTranslationX(0f);
+            root.setTranslationY(0f);
             wrapper.addView(root, new ViewGroup.MarginLayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT));
@@ -619,6 +633,14 @@ public final class UiBridgeMaterializer {
         View v;
         if (cls.endsWith("EditText")) {
             v = new EditText(context);
+        } else if (cls.endsWith("CheckBox")) {
+            v = new CheckBox(context);
+        } else if (cls.endsWith("RadioButton")) {
+            v = new RadioButton(context);
+        } else if (cls.endsWith("ToggleButton")) {
+            v = new ToggleButton(context);
+        } else if (cls.endsWith("SeekBar")) {
+            v = new SeekBar(context);
         } else if (cls.endsWith("ImageButton")) {
             // ImageButton 以图片出画（AOSP ImageButton extends ImageView）。
             v = new ImageView(context);
@@ -642,6 +664,25 @@ public final class UiBridgeMaterializer {
             v = new ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal);
         } else if (cls.endsWith("VideoView")) {
             v = new VideoView(context);
+        } else if (cls.endsWith("HorizontalScrollView")) {
+            // 真滚动容器（此前按 FrameLayout 物化，长内容不可达/不可滚）。
+            v = new HorizontalScrollView(context);
+        } else if (cls.endsWith("ScrollView")) {
+            final ScrollView scrollView = new ScrollView(context);
+            // 首次布局后回内容顶部：宿主焦点/search 与子项分批挂载可能把
+            // ScrollView 带到中部。只校正一次，不与用户后续滑动对抗。
+            scrollView.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                private boolean corrected;
+
+                @Override
+                public void onLayoutChange(View v, int l, int t, int r, int b,
+                                           int ol, int ot, int or, int ob) {
+                    if (corrected) return;
+                    corrected = true;
+                    scrollView.scrollTo(0, 0);
+                }
+            });
+            v = scrollView;
         } else if (isLinearContainer(node, cls)) {
             // AOSP 线性容器（含 ZHLinearLayout2 等派生类）：按 orientation
             // 做行/列流式布局。
@@ -669,6 +710,21 @@ public final class UiBridgeMaterializer {
             return;
         }
         ViewGroup group = (ViewGroup) parent;
+        // 滚动容器：ScrollView 只接受单子项且忽略绝对 margin 摆放——内容子项
+        // 按滚动内容自量（高度 WRAP_CONTENT），滚动由宿主真 ScrollView 承担。
+        if (group instanceof ScrollView || group instanceof HorizontalScrollView) {
+            if (group.getChildCount() > 0 && group.getChildAt(0) != child) {
+                group.removeAllViews();
+            }
+            group.addView(child, group instanceof HorizontalScrollView
+                    ? new HorizontalScrollView.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT)
+                    : new ScrollView.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT));
+            return;
+        }
         Prop bounds = node.prop(PROP_BOUNDS);
         int w = 0;
         int h = 0;
@@ -798,6 +854,13 @@ public final class UiBridgeMaterializer {
         if (v instanceof ProgressBar) {
             Prop progress = node.prop(PROP_PROGRESS);
             if (progress != null) ((ProgressBar) v).setProgress(progress.asInt());
+        }
+        if (v instanceof CompoundButton) {
+            // Switch/CheckBox/RadioButton/ToggleButton 选中态（guest mChecked）
+            Prop checked = node.prop(PROP_CHECKED);
+            if (checked != null) {
+                ((CompoundButton) v).setChecked(checked.asInt() != 0);
+            }
         }
         if (v instanceof VideoView) {
             applyVideoProps((VideoView) v, node);

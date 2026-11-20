@@ -2104,7 +2104,21 @@ void EndGuestSnapshotWalk() {
   }
 }
 
-bool HasGuestClickListener(VObject* view) { return FindClickListener(view) != nullptr; }
+bool HasGuestClickListener(VObject* view) {
+  if (view == nullptr) return false;
+  if (FindClickListener(view) != nullptr) return true;
+  // CompoundButton 族（CheckBox/RadioButton/ToggleButton 等）：点击语义由
+  // performClick 覆写承载（toggle + OnCheckedChangeListener），没有
+  // OnClickListener 也必须是宿主可点击节点（AOSP isClickable 语义投影）。
+  // 仅限真正带 checked 状态的复合按钮（RadioGroup 也有同名 listener 字段，
+  // 但它是容器不是可勾选控件）。
+  if (FindInstanceField(view->klass, "mChecked") != nullptr) {
+    if (VField* f = FindInstanceField(view->klass, "mOnCheckedChangeListener")) {
+      return GetRefField(view, f->offset) != nullptr;
+    }
+  }
+  return false;
+}
 
 size_t GuestClickListenerCount() {
   size_t count = 0;
@@ -2133,24 +2147,22 @@ namespace {
 // 文本（如“重新加载”），监听器挂在容器行上；命中节点无监听时沿 mParent
 // 上溯到最近的可点击祖先，onClick 收到该祖先（performClick(this)）。
 std::string DispatchGuestClick(VMState* vm_state, VObject* target, const std::string& key) {
-  VObject* listener = FindClickListener(target);
   VObject* click_target = target;
-  for (int depth = 0; listener == nullptr && click_target != nullptr && depth < 64; depth++) {
+  for (int depth = 0; click_target != nullptr && depth < 64 &&
+                      !HasGuestClickListener(click_target);
+       depth++) {
     VField* pf = FindInstanceField(click_target->klass, "mParent");
-    VObject* parent =
+    click_target =
         pf != nullptr ? reinterpret_cast<VObject*>(GetRefField(click_target, pf->offset)) : nullptr;
-    if (parent == nullptr) break;
-    click_target = parent;
-    listener = FindClickListener(click_target);
   }
-  if (listener == nullptr) {
+  if (click_target == nullptr || !HasGuestClickListener(click_target)) {
     return "dispatched " + key + " listener=0";
   }
-  // guest listener 注入派发：onClick(View)
-  Value av{};
-  av.ref = click_target;
-  if (!CallVirtual(*vm_state, listener, "onClick", {"Landroid/view/View;"}, "V", &av, 1,
-                   nullptr)) {
+  // AOSP 触摸口径：performClick()——CompoundButton 族在覆写里 toggle 并通知
+  // OnCheckedChangeListener，普通 View 的 View.performClick 再派发
+  // setOnClickListener 登记的 guest listener。直接调 listener.onClick 会跳过
+  // CheckBox/RadioButton 的选中态语义。
+  if (!CallVirtual(*vm_state, click_target, "performClick", {}, "Z", nullptr, 0, nullptr)) {
     std::string diag = "dispatch-error " + key;
     if (vm_state->HasPendingException() && vm_state->pending_exception != nullptr) {
       dexvm::runtime::ObjHeader* ex = vm_state->pending_exception;

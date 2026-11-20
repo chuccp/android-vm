@@ -40,6 +40,105 @@
         android:layout_height="wrap_content"
         android:text="@string/xml_input" />
 
+    <TextView
+        android:id="@+id/runtime_widget_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:text="@string/xml_widget_header"
+        android:textColor="@color/runtime_accent"
+        android:textSize="@dimen/runtime_body_size" />
+
+    <ListView
+        android:id="@+id/runtime_listview"
+        android:layout_width="match_parent"
+        android:layout_height="100dp"
+        android:layout_marginTop="@dimen/runtime_gap" />
+
+    <Spinner
+        android:id="@+id/runtime_spinner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap" />
+
+    <Button
+        android:id="@+id/runtime_okhttp_action"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:text="@string/xml_okhttp_action" />
+
+    <EditText
+        android:id="@+id/runtime_okhttp_output"
+        android:layout_width="match_parent"
+        android:layout_height="140dp"
+        android:padding="8dp"
+        android:textSize="12sp" />
+
+    <Button
+        android:id="@+id/runtime_dialog_action"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:text="@string/xml_dialog_action" />
+
+    <CheckBox
+        android:id="@+id/runtime_checkbox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:checked="true"
+        android:padding="8dp"
+        android:text="@string/xml_checkbox" />
+
+    <RadioGroup
+        android:id="@+id/runtime_radiogroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <RadioButton
+            android:id="@+id/runtime_radio_a"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="4dp"
+            android:text="@string/xml_radio_a" />
+
+        <RadioButton
+            android:id="@+id/runtime_radio_b"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:padding="4dp"
+            android:text="@string/xml_radio_b" />
+
+        <RadioButton
+            android:id="@+id/runtime_radio_c"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="4dp"
+            android:text="@string/xml_radio_c" />
+    </RadioGroup>
+
+    <ToggleButton
+        android:id="@+id/runtime_toggle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:checked="true"
+        android:padding="6dp"
+        android:text="@string/xml_toggle" />
+
+    <SeekBar
+        android:id="@+id/runtime_seekbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:progress="40" />
+
+    <ImageButton
+        android:id="@+id/runtime_imagebutton"
+        android:layout_width="96dp"
+        android:layout_height="48dp"
+        android:src="@drawable/runtime_photo" />
+
     <ImageView
         android:id="@+id/runtime_image"
         android:layout_width="160dp"

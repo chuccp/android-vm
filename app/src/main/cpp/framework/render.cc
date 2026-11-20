@@ -480,6 +480,21 @@ Value PBOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bo
   return Value{};
 }
 
+// SeekBar.onMeasure：AOSP AbsSeekBar 视觉高度（48dp @ DisplayMetrics.density=2
+// = 96px）；轨道/thumb 由宿主真 SeekBar 物化绘制。
+Value SBOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state;
+  *ok = true;
+  if (n < 2) {
+    *ok = false;
+    return Value{};
+  }
+  int32_t w = GetSpecMode(args[0].i) == kUnspecified ? 0 : GetSpecSize(args[0].i);
+  int32_t h = ResolveSize(96, args[1].i);
+  SetMeasured(self, w, h);
+  return Value{};
+}
+
 // TextView.onDraw：背景外的文字 drawText 命令（起点 padding 左上）。
 Value TVOnDraw(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   *ok = true;
@@ -2196,6 +2211,10 @@ void RegisterRenderPipeline(ClassLinker* linker) {
   // ProgressBar：横向固有高度面
   if (VClass* progress = linker->FindClass("Landroid/widget/ProgressBar;")) {
     AddIntrinsic(progress, "onMeasure", {"I", "I"}, "V", kAccPublic, PBOnMeasure);
+  }
+  // SeekBar：拖拽条视觉高度面（ProgressBar.onMeasure 的 8px 会把 thumb 压扁）
+  if (VClass* seek_bar = linker->FindClass("Landroid/widget/SeekBar;")) {
+    AddIntrinsic(seek_bar, "onMeasure", {"I", "I"}, "V", kAccPublic, SBOnMeasure);
   }
 
   // android.graphics.Canvas（幂等：FindClass 命中即已建）

@@ -55,9 +55,11 @@ public class BridgedSSLSocketFactory extends SSLSocketFactory {
             if (autoClose) closeQuietly(s);
             throw e;
         }
-        // 原始 guest 明文连接不复用（宿主已对目标 host:port 新建 TLS）；autoClose
-        // 语义 = SSLSocket 关闭时原 socket 亦关闭，这里直接释放避免空占连接。
-        if (autoClose) closeQuietly(s);
+        // 原始 guest 明文连接不承载 TLS 字节流（宿主已对目标 host:port 新建
+        // TLS），但必须保持打开：OkHttp RealConnection.isHealthy() 读取
+        // rawSocket.isClosed 判定健康度，提前关闭会让新连接被丢弃并逐个重试
+        // 后续路由。autoClose 语义延后到 SSLSocket.close()。
+        socket.attachWrappedSocket(s, autoClose);
         return socket;
     }
 

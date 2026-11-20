@@ -2459,12 +2459,8 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
         std::vector<std::string> params;
       };
       static const IfaceSig kIfaceBatch[] = {
-          {"Landroid/widget/SeekBar$OnSeekBarChangeListener;", "onProgressChanged", "V",
-           {"Landroid/widget/SeekBar;", "I", "Z"}},
-          {"Landroid/widget/SeekBar$OnSeekBarChangeListener;", "onStartTrackingTouch", "V",
-           {"Landroid/widget/SeekBar;"}},
-          {"Landroid/widget/SeekBar$OnSeekBarChangeListener;", "onStopTrackingTouch", "V",
-           {"Landroid/widget/SeekBar;"}},
+          // SeekBar$OnSeekBarChangeListener / RadioGroup$OnCheckedChangeListener
+          // 属纯接口（Q4）→ lib 源随 runtime.dex 打包（§31.7 默认档），不再内建。
           {"Landroid/widget/TextView$OnEditorActionListener;", "onEditorAction", "Z",
            {"Landroid/widget/TextView;", "I", "Landroid/view/KeyEvent;"}},
           {"Landroid/view/GestureDetector$OnGestureListener;", "onDown", "Z",
@@ -2502,8 +2498,6 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
            {"Landroid/view/SurfaceHolder;"}},
           {"Landroid/animation/TypeEvaluator;", "evaluate", "Ljava/lang/Object;",
            {"F", "Ljava/lang/Object;", "Ljava/lang/Object;"}},
-          {"Landroid/widget/RadioGroup$OnCheckedChangeListener;", "onCheckedChanged", "V",
-           {"Landroid/widget/RadioGroup;", "I"}},
           {"Landroid/util/Printer;", "println", "V", {"Ljava/lang/String;"}},
           {"Landroid/media/ImageReader$OnImageAvailableListener;", "onImageAvailable", "V",
            {"Landroid/media/ImageReader;"}},

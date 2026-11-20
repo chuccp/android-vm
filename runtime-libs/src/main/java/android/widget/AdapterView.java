@@ -55,24 +55,28 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         this.mAdapter = adapter;
     }
 
+    // AOSP 语义：adapter 视图的子项由 adapter 驱动，addView 直接抛异常。VM 下
+    // ListView/Spinner 的实现需要在 lib 层物化 item 子 View（容器 addView 是
+    // ViewGroup 内建 intrinsic），因此这里放开为 super 直通；guest 自行 addView
+    // 的兼容面也因此变宽（不再是硬错误）。
     public void addView(View child) {
-        throw new UnsupportedOperationException("AdapterView.addView");
+        super.addView(child);
     }
 
     public void addView(View child, int index) {
-        throw new UnsupportedOperationException("AdapterView.addView");
+        super.addView(child, index);
     }
 
     public void addView(View child, ViewGroup.LayoutParams params) {
-        throw new UnsupportedOperationException("AdapterView.addView");
+        super.addView(child, params);
     }
 
     public void removeView(View child) {
-        throw new UnsupportedOperationException("AdapterView.removeView");
+        super.removeView(child);
     }
 
     public void removeAllViews() {
-        throw new UnsupportedOperationException("AdapterView.removeAllViews");
+        super.removeAllViews();
     }
 
     public View getSelectedView() {

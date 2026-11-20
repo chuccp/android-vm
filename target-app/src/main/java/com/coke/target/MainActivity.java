@@ -1,6 +1,7 @@
 package com.coke.target;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
 import android.media.AudioDeviceInfo;
@@ -12,12 +13,30 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ProgressBar;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.ToggleButton;
 import android.widget.VideoView;
+
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 public final class MainActivity extends Activity {
     private static final String HLS_URL =
@@ -92,6 +111,7 @@ public final class MainActivity extends Activity {
                 getResources().getConfiguration().orientation + " " +
                 RuntimeLibraryCompatibilityFixture.packageManagerSummary(this) +
                 " " + contextResult);
+        wireExtendedWidgets();
         mainHandler = new Handler(Looper.getMainLooper());
         dynamicBadge = new TextView(this);
         dynamicBadge.setText("Dynamic guest badge");
@@ -178,6 +198,173 @@ public final class MainActivity extends Activity {
         Intent intent = new Intent();
         intent.setClassName("com.coke.target", "com.coke.target.RuntimeService");
         startService(intent);
+    }
+
+    /**
+     * 扩展 widget 考面：CheckBox/RadioGroup+RadioButton/ToggleButton/SeekBar/
+     * ImageButton（资源布局膨胀 + 点击回灌 + 状态桥接），外加 lib Dialog
+     * 窗口叠加（宿主 dim 遮罩 + 多根物化）。
+     */
+    private void wireExtendedWidgets() {
+        ListView listView = (ListView) findViewById(R.id.runtime_listview);
+        if (listView != null) {
+            ArrayAdapter<String> listAdapter = new ArrayAdapter<String>(this, 0,
+                    new String[] {"List row 1", "List row 2", "List row 3",
+                            "List row 4", "List row 5"});
+            listView.setAdapter(listAdapter);
+            listView.setOnClickListener(view ->
+                    capabilityStatus.setText("ListView clicked"));
+        }
+
+        Button okhttpButton = (Button) findViewById(R.id.runtime_okhttp_action);
+        final EditText okhttpOutput = (EditText) findViewById(R.id.runtime_okhttp_output);
+        if (okhttpButton != null && okhttpOutput != null) {
+            okhttpButton.setOnClickListener(view -> fetchBaiduHtml(okhttpOutput));
+        }
+
+        Spinner spinner = (Spinner) findViewById(R.id.runtime_spinner);
+        if (spinner != null) {
+            ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<String>(this, 0,
+                    new String[] {"Spinner one", "Spinner two", "Spinner three"});
+            spinner.setAdapter(spinnerAdapter);
+            spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(AdapterView<?> parent, View view,
+                                           int position, long id) {
+                    capabilityStatus.setText("Spinner selected=" + position);
+                }
+
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {
+                }
+            });
+        }
+
+        CheckBox checkBox = (CheckBox) findViewById(R.id.runtime_checkbox);
+        if (checkBox != null) {
+            checkBox.setOnCheckedChangeListener((button, checked) ->
+                    capabilityStatus.setText("CheckBox checked=" + checked));
+        }
+
+        final RadioGroup radioGroup =
+                (RadioGroup) findViewById(R.id.runtime_radiogroup);
+        if (radioGroup != null) {
+            radioGroup.setOnCheckedChangeListener((group, checkedId) ->
+                    capabilityStatus.setText("RadioGroup checkedId=" + checkedId));
+            wireRadio(radioGroup, R.id.runtime_radio_a);
+            wireRadio(radioGroup, R.id.runtime_radio_b);
+            wireRadio(radioGroup, R.id.runtime_radio_c);
+        }
+
+        ToggleButton toggle = (ToggleButton) findViewById(R.id.runtime_toggle);
+        if (toggle != null) {
+            toggle.setTextOn("Compat ON");
+            toggle.setTextOff("Compat OFF");
+            toggle.setOnCheckedChangeListener((button, checked) ->
+                    capabilityStatus.setText("ToggleButton checked=" + checked));
+        }
+
+        SeekBar seekBar = (SeekBar) findViewById(R.id.runtime_seekbar);
+        if (seekBar != null) {
+            seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                    capabilityStatus.setText("SeekBar progress=" + progress);
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar bar) {
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar bar) {
+                }
+            });
+        }
+
+        ImageButton imageButton =
+                (ImageButton) findViewById(R.id.runtime_imagebutton);
+        if (imageButton != null) {
+            imageButton.setImageResource(R.drawable.runtime_photo);
+            imageButton.setOnClickListener(view ->
+                    capabilityStatus.setText("ImageButton clicked"));
+        }
+
+        Button dialogButton = (Button) findViewById(R.id.runtime_dialog_action);
+        if (dialogButton != null) {
+            dialogButton.setOnClickListener(view -> showGuestDialog());
+        }
+    }
+
+    /**
+     * OkHttp 4.12 真网络面：guest 线程发 HTTPS 请求（javax.net.ssl -> 宿主
+     * TlsBridge），把百度首页 HTML 源码写进文本框（超长截断，避免单次快照
+     * 承载整页 ~200KB）。OkHttp 的 Kotlin/Okio/JCA 依赖是第三方兼容考面。
+     */
+    private void fetchBaiduHtml(final EditText output) {
+        output.setText("OkHttp: requesting https://www.baidu.com/ ...");
+        capabilityStatus.setText("OkHttp requesting baidu");
+        new Thread(() -> {
+            String text;
+            try {
+                OkHttpClient client = new OkHttpClient.Builder()
+                        .connectTimeout(15, TimeUnit.SECONDS)
+                        .readTimeout(20, TimeUnit.SECONDS)
+                        .build();
+                Request request = new Request.Builder()
+                        .url("https://www.baidu.com/")
+                        .header("User-Agent", "DexVM-target/1.0")
+                        .build();
+                try (Response response = client.newCall(request).execute()) {
+                    String body = response.body() != null ? response.body().string() : "";
+                    int total = body.length();
+                    String shown = total > 6000
+                            ? body.substring(0, 6000) + "\n…(truncated)"
+                            : body;
+                    text = "HTTP " + response.code() + " total=" + total + "\n" + shown;
+                }
+            } catch (Throwable failure) {
+                text = "OkHttp error: " + failure;
+            }
+            final String result = text;
+            Log.i("DexVmOkHttp", "result chars=" + result.length());
+            mainHandler.post(() -> {
+                output.setText(result);
+                capabilityStatus.setText("OkHttp done chars=" + result.length());
+            });
+        }, "RuntimeOkHttpTask").start();
+    }
+
+    /** lib Dialog + Window：guest 异步弹框经 UI 桥作为叠加根物化。 */
+    private void showGuestDialog() {
+        final Dialog dialog = new Dialog(this);
+        dialog.setTitle("VM dialog");
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setPadding(48, 48, 48, 48);
+        column.setBackgroundColor(0xFFFFFFFF);
+        TextView title = new TextView(this);
+        title.setText("Dialog bridged from guest VM");
+        title.setTextColor(0xFF161B26);
+        title.setTextSize(18f);
+        Button dismiss = new Button(this);
+        dismiss.setText("Dismiss");
+        dismiss.setOnClickListener(view -> dialog.dismiss());
+        column.addView(title);
+        column.addView(dismiss);
+        dialog.setContentView(column);
+        dialog.show();
+        capabilityStatus.setText("Dialog shown");
+    }
+
+    private void wireRadio(RadioGroup group, int id) {
+        final RadioButton button = (RadioButton) group.findViewById(id);
+        if (button == null) return;
+        button.setOnClickListener(view -> {
+            // 直接派发路径兜底：performClick 语义下这里已是选中态，无操作。
+            if (!button.isChecked()) button.toggle();
+            capabilityStatus.setText("Radio clicked id=" + id);
+        });
     }
 
     private void initializeMedia() {

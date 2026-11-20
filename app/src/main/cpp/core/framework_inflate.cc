@@ -405,8 +405,18 @@ std::string WidgetDescriptorForTag(std::string_view tag, bool* constraint_approx
   if (tag == "Button") return "Landroid/widget/Button;";
   if (tag == "EditText") return "Landroid/widget/EditText;";
   if (tag == "Switch") return "Landroid/widget/Switch;";
-  if (tag == "ImageView" || tag == "ImageButton") return "Landroid/widget/ImageView;";
+  if (tag == "ImageView") return "Landroid/widget/ImageView;";
+  // ImageButton 走 lib 类（extends ImageView）：guest findViewById 强转
+  // ImageButton 不能落回 ImageView 基类（CCE）。
+  if (tag == "ImageButton") return "Landroid/widget/ImageButton;";
   if (tag == "ProgressBar") return "Landroid/widget/ProgressBar;";
+  if (tag == "SeekBar") return "Landroid/widget/SeekBar;";
+  if (tag == "CheckBox") return "Landroid/widget/CheckBox;";
+  if (tag == "RadioButton") return "Landroid/widget/RadioButton;";
+  if (tag == "RadioGroup") return "Landroid/widget/RadioGroup;";
+  if (tag == "ToggleButton") return "Landroid/widget/ToggleButton;";
+  if (tag == "ListView") return "Landroid/widget/ListView;";
+  if (tag == "Spinner") return "Landroid/widget/Spinner;";
   if (tag == "VideoView") return "Landroid/widget/VideoView;";
   if (tag == "LinearLayout") return "Landroid/widget/LinearLayout;";
   if (tag == "FrameLayout") return "Landroid/widget/FrameLayout;";
@@ -965,6 +975,39 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
               inc_ov.margin_right = static_cast<int32_t>(std::lround(px));
               inc_ov.any = true;
             }
+          } else if (name.rfind("layout_constraint", 0) == 0) {
+            // AOSP <include> 的 layout_* 覆盖作用于被包含布局根；约束属性同样
+            // 必须落根 LP（否则 include 根脱离约束，被摆到父容器原点——底部
+            // 面板压到顶部按钮/标题上的根因）。
+            if (const char* f = ConstraintIntField(name)) {
+              int32_t v = -1;
+              if (attr.value_type == kValueReference) {
+                v = static_cast<int32_t>(attr.value_data);
+              } else {
+                v = ResolveIntValue(ctx, attr, -1);
+              }
+              if (v >= 0) inc_ov.constraint_ints.emplace_back(f, v);
+              inc_ov.any = true;
+            } else if (const char* df = ConstraintDimField(name)) {
+              float px = 0;
+              if (ResolveDimensionPx(ctx, attr, &px)) {
+                inc_ov.constraint_ints.emplace_back(
+                    df, static_cast<int32_t>(std::lround(px)));
+                inc_ov.any = true;
+              }
+            } else if (const char* ff = ConstraintFloatField(name)) {
+              float f = 0;
+              if (ResolveFloatValue(ctx, attr, &f)) {
+                inc_ov.constraint_floats.emplace_back(ff, f);
+                inc_ov.any = true;
+              }
+            } else if (name == "layout_constraintDimensionRatio") {
+              std::string s;
+              if (ResolveStringValue(ctx, attr, &s)) {
+                inc_ov.dimension_ratio = s;
+                inc_ov.any = true;
+              }
+            }
           }
         }
         // <include> 自身占一对 start/end 事件但不产生节点：压空帧配平 end。
@@ -1058,6 +1101,13 @@ bool InflateEvents(InflateContext& ctx, const std::vector<session::XmlResEvent>&
           int32_t color = 0;
           if (ResolveColorValue(ctx, attr, &color)) {
             SetIntFieldByName(view, "mBackgroundColor", color);
+          }
+        } else if (name == "src") {
+          // ImageView/ImageButton：XML 资源引用 id 落 mImageResource（宿主按
+          // guest APK 资源表装载真 drawable；仅引用型值，颜色等忽略）。
+          if (attr.value_type == kValueReference) {
+            SetIntFieldByName(view, "mImageResource",
+                              static_cast<int32_t>(attr.value_data));
           }
         } else if (name == "padding") {
           float px = 0;

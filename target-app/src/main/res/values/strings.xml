@@ -12,6 +12,14 @@
     <string name="xml_switch">Switch enabled</string>
     <string name="xml_input">Compatibility input</string>
     <string name="xml_image">Image slot</string>
+    <string name="xml_widget_header">Extended widget gallery</string>
+    <string name="xml_checkbox">CheckBox checked</string>
+    <string name="xml_radio_a">Radio A</string>
+    <string name="xml_radio_b">Radio B</string>
+    <string name="xml_radio_c">Radio C</string>
+    <string name="xml_toggle">ToggleButton</string>
+    <string name="xml_dialog_action">Show VM dialog</string>
+    <string name="xml_okhttp_action">Fetch Baidu HTML (OkHttp)</string>
     <string name="xml_programmatic_prefix">Programmatic VM panel</string>
     <string name="xml_touch_prefix">Touch count</string>
     <string name="thread_pending">Thread pending</string>

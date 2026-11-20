@@ -1,6 +1,6 @@
 // target-app — v2 顶层测试 app 模块（旧 guest 考卷模块继任，v1 target-apk 归位）。
 // 三方库版本内联自 tests/target-apk/build-shell/gradle/libs.versions.toml 的已验证组合
-// （AGP 9.5.1 / Gradle 9.6 / JDK 25 实证），不给 v2 根加版本目录，保持测试 app 模块同款直坐标风格。
+// （AGP 9.3.0 / Gradle 9.6 / JDK 25 实证），不给 v2 根加版本目录，保持测试 app 模块同款直坐标风格。
 plugins {
     id("com.android.application")
 }
@@ -55,6 +55,7 @@ dependencies {
     implementation("io.netty:netty-handler:4.1.118.Final")
     implementation("io.netty:netty-transport:4.1.118.Final")
     implementation("com.squareup.okio:okio:3.18.2")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.reactivex.rxjava3:rxjava:3.1.12")
     implementation("org.slf4j:slf4j-api:2.0.20")
 }
