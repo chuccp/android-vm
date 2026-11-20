@@ -31,6 +31,7 @@
 #include "core/intrinsic.h"
 #include "core/interpreter.h"
 #include "core/framework_builtins_internal.h"
+#include "core/framework_dialog.h"
 
 namespace dexvm::runtime {
 
@@ -1744,6 +1745,13 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
     AddIntrinsicMethod(vm_layout_host, "inflate",
                        {"Landroid/view/LayoutInflater;", "I", "Landroid/view/ViewGroup;", "Z"},
                        "Landroid/view/View;", stat, VmLayoutHostInflate);
+    // Dialog 窗口面：内容树登记为 VM 窗口根（快照叠加导出；Dialog 对象不出 guest）。
+    AddIntrinsicMethod(
+        vm_layout_host, "showDialog",
+        {"Ljava/lang/Object;", "Landroid/view/View;", "I", "I", "I", "F", "Z"}, "V", stat,
+        VmDialogShow);
+    AddIntrinsicMethod(vm_layout_host, "dismissDialog", {"Ljava/lang/Object;"}, "V", stat,
+                       VmDialogDismiss);
   }
 
   // android.content.res.VmAssets：lib AssetManager.open 的资产读取钩子

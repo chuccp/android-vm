@@ -91,6 +91,7 @@ public final class UiBridgeMaterializer {
     private static final int PROP_LAYOUT_MARGINS = 23;
     private static final int PROP_LAYOUT_WEIGHT = 24;
     private static final int PROP_LAYOUT_KIND = 25;
+    private static final int PROP_WINDOW_DIM = 26;
 
     private static final int TYPE_INT = 1;
     private static final int TYPE_FLOAT = 2;
@@ -164,6 +165,10 @@ public final class UiBridgeMaterializer {
     private final Map<View, Integer> childGravity = new IdentityHashMap<>();
     private final Map<View, Float> childWeight = new IdentityHashMap<>();
     private View root;
+    // Dialog 叠加层：窗口根（parentId 无父）出现时，用一个 wrapper 托管
+    // Activity 根 + scrim + 窗口内容根；Dialog 对象本身不出 guest。
+    private HostFrameLayout overlayWrapper;
+    private final Map<Integer, View> dialogScrims = new HashMap<>();
     private int appliedRevision = 0;
     private int dirtyCount = 0;
     private String apkPath;
@@ -491,6 +496,8 @@ public final class UiBridgeMaterializer {
         childGravity.clear();
         childWeight.clear();
         appliedVideoPath.clear();
+        dialogScrims.clear();
+        overlayWrapper = null;
         root = null;
 
         Map<Integer, List<Node>> kids = new HashMap<>();
@@ -520,7 +527,11 @@ public final class UiBridgeMaterializer {
         if (roots.isEmpty()) {
             throw new IllegalStateException("ui-bridge: snapshot has no root");
         }
-        root = materializeTree(roots.get(0));
+        if (roots.size() == 1 && roots.get(0).prop(PROP_WINDOW_DIM) == null) {
+            root = materializeTree(roots.get(0));
+        } else {
+            root = materializeMultiRoot(roots);
+        }
         appliedRevision = revision;
     }
 
@@ -534,6 +545,70 @@ public final class UiBridgeMaterializer {
             attach(v, cv, child, node);
         }
         return v;
+    }
+
+    /** 多根快照（Activity 根 + Dialog 窗口根）：wrapper 托管叠加层。 */
+    private View materializeMultiRoot(List<Node> roots) {
+        HostFrameLayout wrapper = new HostFrameLayout(context);
+        overlayWrapper = wrapper;
+        for (Node r : roots) {
+            Prop dim = r.prop(PROP_WINDOW_DIM);
+            if (dim != null && dim.f > 0f) {
+                View scrim = makeScrim(dim.f);
+                dialogScrims.put(r.objectId, scrim);
+                wrapper.addView(scrim, new ViewGroup.MarginLayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            View v = materializeTree(r);
+            wrapper.addView(v, absoluteLayoutParams(r));
+        }
+        return wrapper;
+    }
+
+    /** Dialog dim 遮罩：可点击但无 guest 动作，只消费窗口外触摸（防穿透）。 */
+    private View makeScrim(float dim) {
+        View scrim = new View(context);
+        int alpha = Math.max(0, Math.min(255, Math.round(dim * 255f)));
+        scrim.setBackgroundColor(alpha << 24);
+        scrim.setClickable(true);
+        scrim.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { }
+        });
+        return scrim;
+    }
+
+    private ViewGroup.MarginLayoutParams absoluteLayoutParams(Node node) {
+        Prop b = node.prop(PROP_BOUNDS);
+        if (b != null) {
+            int w = b.rect[2] - b.rect[0];
+            int h = b.rect[3] - b.rect[1];
+            if (w > 0 && h > 0) {
+                ViewGroup.MarginLayoutParams lp = new ViewGroup.MarginLayoutParams(w, h);
+                lp.leftMargin = b.rect[0];
+                lp.topMargin = b.rect[1];
+                return lp;
+            }
+        }
+        return new ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT);
+    }
+
+    /** 窗口根（无父节点）的增量出现：把当前根移入 wrapper 并返回。 */
+    private HostFrameLayout ensureOverlayWrapper() {
+        if (overlayWrapper != null) return overlayWrapper;
+        HostFrameLayout wrapper = new HostFrameLayout(context);
+        if (root != null) {
+            if (root.getParent() instanceof ViewGroup) {
+                ((ViewGroup) root.getParent()).removeView(root);
+            }
+            wrapper.addView(root, new ViewGroup.MarginLayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        overlayWrapper = wrapper;
+        root = wrapper;
+        return wrapper;
     }
 
     private View materializeLeaf(Node node) {
@@ -867,7 +942,31 @@ public final class UiBridgeMaterializer {
                     views.put(node.objectId, v);
                     View parent = views.get(node.parentId);
                     Node parentNode = nodes.get(node.parentId);
-                    if (parent != null) attach(parent, v, node, parentNode);
+                    if (parent != null) {
+                        attach(parent, v, node, parentNode);
+                    } else if (!nodes.containsKey(node.parentId)) {
+                        // 窗口根（parent_id = kNoObject = -1）：Dialog 内容树
+                        // 作为叠加根挂到 wrapper（宿主不知道 Dialog 对象）。
+                        HostFrameLayout wrapper = ensureOverlayWrapper();
+                        Prop dim = node.prop(PROP_WINDOW_DIM);
+                        if (dim != null && dim.f > 0f) {
+                            View scrim = makeScrim(dim.f);
+                            dialogScrims.put(node.objectId, scrim);
+                            wrapper.addView(scrim, new ViewGroup.MarginLayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT));
+                        }
+                        wrapper.addView(v, absoluteLayoutParams(node));
+                        Prop rb = node.prop(PROP_BOUNDS);
+                        Prop rd = node.prop(PROP_WINDOW_DIM);
+                        Log.i(TAG, "patch add root id=" + node.objectId + " cls="
+                                + node.className + " bounds="
+                                + (rb != null ? rb.rect[0] + "," + rb.rect[1] + ","
+                                        + rb.rect[2] + "," + rb.rect[3] : "none")
+                                + " dim=" + (rd != null ? rd.f : -1f)
+                                + " wrapperKids=" + wrapper.getChildCount()
+                                + " v=" + v.getClass().getSimpleName());
+                    }
                     break;
                 }
                 case PATCH_REMOVE: {
@@ -875,6 +974,10 @@ public final class UiBridgeMaterializer {
                     nodes.remove(op.objectId);
                     if (v != null && v.getParent() instanceof ViewGroup) {
                         ((ViewGroup) v.getParent()).removeView(v);
+                    }
+                    View scrim = dialogScrims.remove(op.objectId);
+                    if (scrim != null && scrim.getParent() instanceof ViewGroup) {
+                        ((ViewGroup) scrim.getParent()).removeView(scrim);
                     }
                     if (v == root) root = null;
                     break;

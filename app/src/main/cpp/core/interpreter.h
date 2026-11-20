@@ -98,6 +98,9 @@ struct VMState {
 void SetGuestMethodProfile(bool on);
 bool GuestMethodProfileEnabled();
 VMethod* CurrentGuestMethod();
+// 采样线程专用：锁内读取当前 guest 方法并拷出 "declaring.name"（VMethod
+// 生命周期与会话 linker 绑定；直接返回裸指针跨线程解引用不安全）。
+bool FormatCurrentGuestMethod(std::string* out);
 
 bool InvokeMethod(VMState& state, VMethod* method, const Value* args, size_t arg_count,
                   Value* result);

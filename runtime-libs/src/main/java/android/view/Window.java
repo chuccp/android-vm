@@ -10,9 +10,19 @@ import android.view.MotionEvent;
  * 窗口（AOSP android.view.Window 公开面；§31.7 C 档 lib 骨架——窗口归属/样式
  * 字段态 + 请求面；真窗口系统归桥接层）。
  */
-public abstract class Window {
+public class Window {
 
     private WindowInsetsController mInsetsController;
+
+    // ---- VM 单窗口桥接面（Dialog 内容树经快照导出 -> 宿主物化叠加）----
+    // AOSP 真实 WindowManager 归桥接层：这里保存内容树与窗口布局意图，
+    // Dialog.show/dismiss 经 VmLayoutHost 通知 VM 登记/摘除窗口根。
+    private View mContentView;
+    private int mLayoutWidth = ViewGroup.LayoutParams.WRAP_CONTENT;
+    private int mLayoutHeight = ViewGroup.LayoutParams.WRAP_CONTENT;
+    private int mLayoutGravity = -1;
+    private float mDimAmount = 0.32f;
+    private Drawable mBackgroundDrawable;
 
     /**
      * AOSP API 30：系统栏外观/行为控制器（VM 面 no-op 单例）。
@@ -129,12 +139,16 @@ public abstract class Window {
     }
 
     public void setFlags(int flags, int mask) {
+        WindowManager.LayoutParams attrs = getAttributes();
+        attrs.flags = (attrs.flags & ~mask) | (flags & mask);
     }
 
     public void addFlags(int flags) {
+        getAttributes().flags |= flags;
     }
 
     public void clearFlags(int flags) {
+        getAttributes().flags &= ~flags;
     }
 
     public void setStatusBarColor(int color) {
@@ -154,21 +168,61 @@ public abstract class Window {
         return this.mTitle;
     }
 
-    public abstract View getDecorView();
-
-    public View peekDecorView() {
-        return null;
+    public View getDecorView() {
+        return mContentView;
     }
 
-    public abstract void setContentView(View view);
+    public View peekDecorView() {
+        return mContentView;
+    }
+
+    public void setContentView(View view) {
+        this.mContentView = view;
+    }
 
     public void setContentView(int layoutResID) {
+        View view = LayoutInflater.from(getContext()).inflate(layoutResID, null);
+        if (view != null) setContentView(view);
     }
 
     public void addContentView(View view, ViewGroup.LayoutParams params) {
+        if (mContentView instanceof ViewGroup) {
+            ((ViewGroup) mContentView).addView(view, params);
+        } else if (mContentView == null) {
+            mContentView = view;
+        }
     }
 
     public void setBackgroundDrawable(Drawable d) {
+        this.mBackgroundDrawable = d;
+    }
+
+    public Drawable getBackgroundDrawableForVm() {
+        return mBackgroundDrawable;
+    }
+
+    public View getContentViewForVm() {
+        return mContentView;
+    }
+
+    public int getLayoutWidthForVm() {
+        return mLayoutWidth;
+    }
+
+    public int getLayoutHeightForVm() {
+        return mLayoutHeight;
+    }
+
+    public int getLayoutGravityForVm() {
+        return mLayoutGravity;
+    }
+
+    public float getDimAmount() {
+        return mDimAmount;
+    }
+
+    public void setDimAmount(float amount) {
+        this.mDimAmount = amount;
     }
 
     public void setDecorFitsSystemWindows(boolean decorFitsSystemWindows) {
@@ -188,15 +242,23 @@ public abstract class Window {
     }
 
     public void setSoftInputMode(int mode) {
+        getAttributes().softInputMode = mode;
     }
 
     public void setGravity(int gravity) {
+        this.mLayoutGravity = gravity;
     }
 
     public void setLayout(int width, int height) {
+        this.mLayoutWidth = width;
+        this.mLayoutHeight = height;
+        WindowManager.LayoutParams attrs = getAttributes();
+        attrs.width = width;
+        attrs.height = height;
     }
 
     public void setWindowAnimations(int resId) {
+        getAttributes().windowAnimations = resId;
     }
 
     public View findViewById(int id) {

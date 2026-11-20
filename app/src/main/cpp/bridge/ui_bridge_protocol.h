@@ -79,6 +79,8 @@ enum PropKey : uint16_t {
   kPropLayoutWeight = 24,     // kFloat   — LinearLayout$LayoutParams.weight
   kPropLayoutKind = 25,       // kInt     — 1 Linear / 2 Frame / 3 Relative /
                               //            4 ScrollView / 0 其他（宿主布局语义）
+  kPropWindowDim = 26,        // kFloat   — 窗口根 dim（Dialog 叠加层遮罩 0..1；
+                              //            仅额外根携带，宿主据此加 scrim）
 };
 
 struct PropValue {

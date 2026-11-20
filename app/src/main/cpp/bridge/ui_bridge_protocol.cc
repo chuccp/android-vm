@@ -14,6 +14,7 @@
 #include "bridge/ui_bridge_input.h"
 #include "core/class_linker.h"
 #include "core/framework_builtins.h"
+#include "core/framework_dialog.h"
 #include "core/interpreter.h"
 #include "session/class_loader.h"
 
@@ -991,6 +992,22 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
         }
       };
   walk(content_view, kNoObject, 0);
+  // Dialog 窗口根：guest 侧登记的叠加内容树（Dialog 对象不出 guest；宿主只
+  // 看到视图根 + kPropWindowDim）。逻辑窗口布局在 walk 前由 VM 完成。
+  dexvm::runtime::LayoutDialogWindows(state);
+  dexvm::runtime::DialogWindowInfo dialogs[8] = {};
+  const size_t dialog_count = dexvm::runtime::CollectDialogWindows(dialogs, 8);
+  for (size_t i = 0; i < dialog_count; i++) {
+    if (dialogs[i].content == nullptr) continue;
+    const size_t before = snap.nodes.size();
+    walk(dialogs[i].content, kNoObject, static_cast<uint32_t>(i + 1));
+    if (snap.nodes.size() > before) {
+      Prop dim;
+      dim.key = kPropWindowDim;
+      dim.value = PropValue::Float(dialogs[i].dim);
+      snap.nodes[before].props.push_back(std::move(dim));
+    }
+  }
   RebuildChildren(snap);  // children 向量（由 parent_id 重建）
   EndGuestSnapshotWalk();
   return snap;

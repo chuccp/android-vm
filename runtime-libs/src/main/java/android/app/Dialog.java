@@ -8,33 +8,45 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.VmLayoutHost;
 import android.view.Window;
 
 /**
- * 对话框（AOSP android.app.Dialog 公开面；§31.7 C 档 lib 骨架——窗口/显示态 +
- * show/dismiss 生命周期面；真窗口归桥接层）。
+ * 对话框（AOSP android.app.Dialog 公开面；§31.7 C 档 lib）。
+ *
+ * VM 单窗口模型：Dialog 持有一个 lib Window（内容树 + 布局意图），show() 时经
+ * VmLayoutHost 把内容树登记为 VM 的窗口根；会话快照把它作为叠加根导出，宿主
+ * UI 桥物化成真 View 叠加层（含 dim 遮罩），点击经既有 objectId 回灌。
+ * dismiss()/hide() 摘除窗口根。
  */
-public class Dialog {
+public class Dialog implements DialogInterface {
 
     private final Context mContext;
     private Window mWindow;
+    private boolean mCreated;
     private boolean mShowing;
     private boolean mCancelable = true;
+    private boolean mCanceledOnTouchOutside = true;
     private DialogInterface.OnCancelListener mCancelListener;
     private DialogInterface.OnDismissListener mDismissListener;
+    private DialogInterface.OnShowListener mOnShowListener;
     private DialogInterface.OnKeyListener mKeyListener;
+    private Activity mOwnerActivity;
 
     public Dialog(Context context) {
         this.mContext = context;
+        this.mWindow = new Window(context);
     }
 
     public Dialog(Context context, int themeResId) {
         this.mContext = context;
+        this.mWindow = new Window(context);
     }
 
     protected Dialog(Context context, boolean cancelable,
                      DialogInterface.OnCancelListener cancelListener) {
         this.mContext = context;
+        this.mWindow = new Window(context);
         this.mCancelable = cancelable;
         this.mCancelListener = cancelListener;
     }
@@ -48,7 +60,7 @@ public class Dialog {
     }
 
     public View getCurrentFocus() {
-        return null;
+        return this.mWindow != null ? this.mWindow.getDecorView() : null;
     }
 
     public View findViewById(int id) {
@@ -56,21 +68,27 @@ public class Dialog {
     }
 
     public void setContentView(int layoutResID) {
+        if (this.mWindow != null) this.mWindow.setContentView(layoutResID);
     }
 
     public void setContentView(View view) {
+        if (this.mWindow != null) this.mWindow.setContentView(view);
     }
 
     public void setContentView(View view, ViewGroup.LayoutParams params) {
+        if (this.mWindow != null) this.mWindow.setContentView(view);
     }
 
     public void addContentView(View view, ViewGroup.LayoutParams params) {
+        if (this.mWindow != null) this.mWindow.addContentView(view, params);
     }
 
     public void setTitle(CharSequence title) {
+        if (this.mWindow != null) this.mWindow.setTitle(title);
     }
 
     public void setTitle(int titleId) {
+        if (this.mWindow != null) this.mWindow.setTitle(titleId);
     }
 
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -88,20 +106,63 @@ public class Dialog {
         return new Bundle();
     }
 
+    /** AOSP 生命周期钩子：AppCompatDialog 在 onCreate 里 installContent。 */
+    protected void onCreate(Bundle savedInstanceState) {
+    }
+
+    protected void onStart() {
+    }
+
+    protected void onStop() {
+    }
+
+    boolean dispatchOnCreate(Bundle savedInstanceState) {
+        if (this.mCreated) return false;
+        this.mCreated = true;
+        onCreate(savedInstanceState);
+        return true;
+    }
+
     public void hide() {
+        if (!this.mShowing) return;
+        if (this.mWindow != null) {
+            VmLayoutHost.dismissDialog(this);
+        }
+        this.mShowing = false;
+        onStop();
     }
 
     public void show() {
+        if (this.mShowing) return;
+        dispatchOnCreate(null);
+        onStart();
+        if (this.mWindow != null) {
+            View content = this.mWindow.getDecorView();
+            if (content != null) {
+                VmLayoutHost.showDialog(this, content,
+                        this.mWindow.getLayoutWidthForVm(),
+                        this.mWindow.getLayoutHeightForVm(),
+                        this.mWindow.getLayoutGravityForVm(),
+                        this.mWindow.getDimAmount(), this.mCancelable);
+            }
+        }
         this.mShowing = true;
+        if (this.mOnShowListener != null) this.mOnShowListener.onShow(this);
     }
 
     public void dismiss() {
+        if (!this.mShowing) return;
+        if (this.mWindow != null) {
+            VmLayoutHost.dismissDialog(this);
+        }
         this.mShowing = false;
-        if (this.mDismissListener != null) this.mDismissListener.onDismiss(null);
+        onStop();
+        if (this.mDismissListener != null) this.mDismissListener.onDismiss(this);
     }
 
     public void cancel() {
-        if (this.mCancelListener != null) this.mCancelListener.onCancel(null);
+        if (!this.mCancelable) return;
+        if (this.mCancelListener != null) this.mCancelListener.onCancel(this);
         dismiss();
     }
 
@@ -110,6 +171,11 @@ public class Dialog {
     }
 
     public void setCanceledOnTouchOutside(boolean cancel) {
+        this.mCanceledOnTouchOutside = cancel;
+    }
+
+    public boolean isCanceledOnTouchOutside() {
+        return this.mCanceledOnTouchOutside;
     }
 
     public void setOnCancelListener(DialogInterface.OnCancelListener listener) {
@@ -121,6 +187,7 @@ public class Dialog {
     }
 
     public void setOnShowListener(DialogInterface.OnShowListener listener) {
+        this.mOnShowListener = listener;
     }
 
     public void setOnKeyListener(DialogInterface.OnKeyListener listener) {
@@ -136,10 +203,11 @@ public class Dialog {
     }
 
     public void setOwnerActivity(Activity activity) {
+        this.mOwnerActivity = activity;
     }
 
     public Activity getOwnerActivity() {
-        return null;
+        return this.mOwnerActivity;
     }
 
     public boolean takeKeyEvents(boolean get) {
@@ -156,7 +224,9 @@ public class Dialog {
     public void setOnCreateContextMenuListener(android.view.View.OnCreateContextMenuListener l) {
     }
 
-    public void requestWindowFeature(int featureId) {
+    /** AOSP：窗口特性请求（VM 无窗口 feature 集，恒接受）。 */
+    public boolean requestWindowFeature(int featureId) {
+        return true;
     }
 
     public void setFeatureDrawable(int featureId, Drawable drawable) {

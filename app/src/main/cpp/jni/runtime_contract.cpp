@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/ucontext.h>  // ucontext_t/寄存器位型（<ucontext.h> 在 macOS 需 _XOPEN_SOURCE）
+#include <unistd.h>        // access/unlink（设备验证探针 marker）
 
 #include <cstdarg>
 #include <cctype>
@@ -45,6 +46,7 @@
 #include "core/class_linker.h"
 #include "core/framework_builtins.h"
 #include "core/framework_builtins.h"
+#include "core/framework_dialog.h"
 #include "core/gc.h"
 #include "core/interpreter.h"
 #include "core/intrinsic.h"
@@ -356,11 +358,10 @@ std::string RunApkLifecycleImpl(const char* boot_path, const char* app_path, boo
       std::thread([] {
         for (;;) {
           std::this_thread::sleep_for(std::chrono::milliseconds(200));
-          if (!dexvm::runtime::GuestMethodProfileEnabled()) continue;
-          dexvm::runtime::VMethod* m = dexvm::runtime::CurrentGuestMethod();
-          if (m == nullptr || m->declaring == nullptr) continue;
-          __android_log_print(ANDROID_LOG_INFO, "DexVmProfile", "%s.%s",
-                              m->declaring->descriptor.c_str(), m->name.c_str());
+          // 锁内拷出方法名：采样线程不得在会话拆栈后解引用 VMethod*。
+          std::string method;
+          if (!dexvm::runtime::FormatCurrentGuestMethod(&method)) continue;
+          __android_log_print(ANDROID_LOG_INFO, "DexVmProfile", "%s", method.c_str());
         }
       }).detach();
     }
@@ -2760,6 +2761,8 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
     if (run->keep_alive && run->driver_ok && run->ui != nullptr && activity != nullptr) {
       dexvm::runtime::VObject* content = SessionFieldRef(activity, "mContentView");
       if (content != nullptr) {
+        // Dialog 窗口根以会话内容根为逻辑屏幕（宽高为 guest 逻辑窗口）。
+        dexvm::runtime::SetDialogHostView(content, run->width, run->height);
         {
           std::lock_guard<std::mutex> lk(g_session_state.mu);
           g_session_state.active = true;
@@ -2797,6 +2800,36 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             ProgressAppend("session click " + std::to_string(click) + ": " + click_status);
           }
           if (stop) break;
+          // 设备验证探针（marker 文件）：走真实 Dialog.show/dismiss 全链路
+          // （lib Dialog/Window -> VmLayoutHost intrinsic -> 快照叠加根 ->
+          // 宿主物化）。仅诊断用，marker 不存在时零行为。
+          {
+            const std::string appcompat_marker =
+                run->files_dir + "/vm_dialog_probe_appcompat";
+            if (session_ticks >= 1 && ::access(appcompat_marker.c_str(), F_OK) == 0) {
+              ::unlink(appcompat_marker.c_str());
+              if (dexvm::runtime::DebugDialogProbeShowAppCompat(s, activity)) {
+                ProgressAppend("dialog probe: appcompat show");
+              } else {
+                ProgressAppend("dialog probe: appcompat show FAILED");
+              }
+            }
+            const std::string show_marker = run->files_dir + "/vm_dialog_probe";
+            if (session_ticks >= 1 && ::access(show_marker.c_str(), F_OK) == 0) {
+              ::unlink(show_marker.c_str());
+              if (dexvm::runtime::DebugDialogProbeShow(s, activity)) {
+                ProgressAppend("dialog probe: show");
+              } else {
+                ProgressAppend("dialog probe: show FAILED");
+              }
+            }
+            const std::string dismiss_marker = run->files_dir + "/vm_dialog_probe_dismiss";
+            if (::access(dismiss_marker.c_str(), F_OK) == 0) {
+              ::unlink(dismiss_marker.c_str());
+              dexvm::runtime::DebugDialogProbeDismiss(s);
+              ProgressAppend("dialog probe: dismiss");
+            }
+          }
           // 主线程消息泵（Handler post 派发；guest 线程任务经调度等待点运行）
           session_ticks++;
           auto pump_t0 = std::chrono::steady_clock::now();

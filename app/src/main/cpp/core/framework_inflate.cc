@@ -1472,6 +1472,38 @@ Value ActSetContentViewInt(VMState& state, VObject* self, const Value* args, siz
   return Value{};
 }
 
+// Window.setContentView(int)（Dialog/无 owner 窗口）：资源布局 -> guest View
+// 树；上下文取窗口自身 mContext（Dialog 构造时传入的 Context/theme）。
+VObject* InflateWindowContentView(VMState& state, VObject* window, uint32_t res_id,
+                                  bool* ok) {
+  bool local = true;
+  if (ok == nullptr) ok = &local;
+  *ok = true;
+  VObject* context = nullptr;
+  if (window != nullptr && window->klass != nullptr) {
+    if (VField* f = FindInstanceField(window->klass, "mContext")) {
+      context = reinterpret_cast<VObject*>(GetRefField(window, f->offset));
+    }
+  }
+  InflateContext ctx{state, context, ResolveApkPath(state.linker, context), {}};
+  if (ctx.apk_path.empty()) {
+    ThrowInflateError(state, "Window.setContentView(" + std::to_string(res_id) +
+                                 "): no APK resource path", ok);
+    return nullptr;
+  }
+  VObject* root = nullptr;
+  LayoutOverrides ov;
+  if (!InflateLayout(ctx, res_id, nullptr, nullptr, &root, &ov) || root == nullptr) {
+    ThrowInflateError(state, "Window.setContentView(0x" + [&] {
+      char buf[16];
+      std::snprintf(buf, sizeof(buf), "%x", res_id);
+      return std::string(buf);
+    }() + "): " + (ctx.error.empty() ? "inflate failed" : ctx.error), ok);
+    return nullptr;
+  }
+  return root;
+}
+
 // Activity.findViewById(int)：内容 View 树按 mId 查（AOSP getDecorView 子树同径）。
 Value ActFindViewById(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   *ok = true;

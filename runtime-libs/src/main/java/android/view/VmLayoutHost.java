@@ -12,4 +12,19 @@ public final class VmLayoutHost {
                                boolean attachToRoot) {
         throw new UnsupportedOperationException("VmLayoutHost: VM intrinsic");
     }
+
+    /**
+     * Dialog 窗口登记（实现：libdexvm.so intrinsic）。内容树作为独立窗口根进入
+     * 会话快照（叠加在 Activity 内容之上）；width/height 为 Window.setLayout 的
+     * 意图（MATCH_PARENT=-1 / WRAP_CONTENT=-2 / px），gravity 默认 -1 = 居中。
+     */
+    public static void showDialog(Object dialog, View content, int width, int height,
+                                  int gravity, float dimAmount, boolean cancelable) {
+        throw new UnsupportedOperationException("VmLayoutHost: VM intrinsic");
+    }
+
+    /** Dialog 窗口摘除（dismiss/hide）。 */
+    public static void dismissDialog(Object dialog) {
+        throw new UnsupportedOperationException("VmLayoutHost: VM intrinsic");
+    }
 }

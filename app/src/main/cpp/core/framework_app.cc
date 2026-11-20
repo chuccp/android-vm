@@ -287,9 +287,21 @@ void AddChildV(VMState& state, VObject* parent, VObject* child) {
   InvokeMethod(state, m, av, 2, &r);
 }
 
+bool IsActivityObject(VObject* o) {
+  if (o == nullptr || o->klass == nullptr) return false;
+  for (VClass* k = o->klass; k != nullptr; k = k->super_class) {
+    if (k->descriptor == "Landroid/app/Activity;") return true;
+  }
+  return false;
+}
+
 VObject* WindowOwnerActivity(VObject* window) {
   auto it = g_window_callback.find(reinterpret_cast<ObjHeader*>(window));
-  return it != g_window_callback.end() ? reinterpret_cast<VObject*>(it->second) : nullptr;
+  if (it == g_window_callback.end()) return nullptr;
+  VObject* cb = reinterpret_cast<VObject*>(it->second);
+  // Dialog 窗口的 callback 是 Dialog/AppCompatDialog（Window.setCallback(this)）：
+  // 不是 Activity，不能当 owner 走 Activity 内容槽。
+  return IsActivityObject(cb) ? cb : nullptr;
 }
 
 void SetActivityContentView(VObject* activity, VObject* view) {
@@ -297,6 +309,20 @@ void SetActivityContentView(VObject* activity, VObject* view) {
   if (VField* f = FindInstanceField(activity->klass, "mContentView")) {
     SetRefField(activity, f->offset, reinterpret_cast<ObjHeader*>(view));
   }
+}
+
+// Dialog/无 owner Window 自身的内容槽（lib Window.mContentView；Activity 窗口
+// 不使用该字段，内容落 Activity.mContentView——桥接出画面不变）。
+VObject* WindowSelfContentView(VObject* window) {
+  if (window == nullptr || window->klass == nullptr) return nullptr;
+  VField* f = FindInstanceField(window->klass, "mContentView");
+  return f != nullptr ? reinterpret_cast<VObject*>(GetRefField(window, f->offset)) : nullptr;
+}
+
+VObject* WindowSelfContext(VObject* window) {
+  if (window == nullptr || window->klass == nullptr) return nullptr;
+  VField* f = FindInstanceField(window->klass, "mContext");
+  return f != nullptr ? reinterpret_cast<VObject*>(GetRefField(window, f->offset)) : nullptr;
 }
 }  // namespace
 
@@ -311,9 +337,11 @@ Value WindowGetDecorView(VMState& state, VObject* self, const Value* args, size_
     return r;
   }
   VObject* activity = WindowOwnerActivity(self);
-  VObject* decor = MakeGroup(state, "Landroid/widget/FrameLayout;", activity, 0);
+  // 无 owner Activity = Dialog/普通 Window：窗口自带上下文与内容槽。
+  VObject* window_context = activity != nullptr ? activity : WindowSelfContext(self);
+  VObject* decor = MakeGroup(state, "Landroid/widget/FrameLayout;", window_context, 0);
   if (decor == nullptr) {
-    decor = MakeGroup(state, "Landroid/view/View;", activity, 0);
+    decor = MakeGroup(state, "Landroid/view/View;", window_context, 0);
   }
   if (decor == nullptr) {
     ThrowOOM(state, "Window.getDecorView");
@@ -325,7 +353,8 @@ Value WindowGetDecorView(VMState& state, VObject* self, const Value* args, size_
                       (void*)self, (void*)WindowOwnerActivity(self));
 #endif
   // 内容父容器（android.R.id.content）：AppCompat 从窗口搬移内容用
-  VObject* content = MakeGroup(state, "Landroid/widget/FrameLayout;", activity, kAndroidRIdContent);
+  VObject* content =
+      MakeGroup(state, "Landroid/widget/FrameLayout;", window_context, kAndroidRIdContent);
   if (content != nullptr) {
     AddChildV(state, decor, content);
     g_content_by_window[reinterpret_cast<ObjHeader*>(self)] = content;
@@ -334,12 +363,15 @@ Value WindowGetDecorView(VMState& state, VObject* self, const Value* args, size_
       state.heap->Pin(decor);
       state.heap->Pin(content);
     }
-    // Activity 已有内容（非 AppCompat 路径先 setContentView）时挂入
+    // 已有内容（Activity 先 setContentView / Dialog 先 Window.setContentView）
+    // 时挂入内容父容器。
     VObject* existing = nullptr;
     if (activity != nullptr) {
       if (VField* f = FindInstanceField(activity->klass, "mContentView")) {
         existing = reinterpret_cast<VObject*>(GetRefField(activity, f->offset));
       }
+    } else {
+      existing = WindowSelfContentView(self);
     }
     if (existing != nullptr) AddChildV(state, content, existing);
   }
@@ -389,18 +421,54 @@ Value WindowFindViewById(VMState& state, VObject* self, const Value* args, size_
 Value WindowSetContentView(VMState& state, VObject* self, const Value* args, size_t n,
                            bool* ok) {
   *ok = true;
-  if (n < 1 || args[0].ref == nullptr) return Value{};
+  if (n < 1) return Value{};
+  // 同名重载 setContentView(View) / setContentView(int) 共用一个 intrinsic：
+  // 用堆指针判定（资源 id 是 32 位小整数，不可能是 GC 堆对象起点）。
+  const bool is_view =
+      state.heap != nullptr && state.heap->IsHeapStart(args[0].ref);
   // AOSP Window.setContentView(View)：窗口内容 = view；本 VM 内容根 =
   // owner Activity.mContentView（桥接出画消费面）。AppCompat 路径传 subDecor。
   VObject* activity = WindowOwnerActivity(self);
-  if (activity == nullptr) return Value{};
-  VObject* view = reinterpret_cast<VObject*>(const_cast<ObjHeader*>(args[0].ref));
+  if (activity != nullptr) {
+    if (!is_view) return Value{};  // Activity 的 res 变体走 Activity intrinsic
+    VObject* view = reinterpret_cast<VObject*>(const_cast<ObjHeader*>(args[0].ref));
 #if defined(__ANDROID__)
-  __android_log_print(ANDROID_LOG_INFO, "DexVmWindow", "win=%p setContentView(%s) owner=%p",
-                      (void*)self, view->klass != nullptr ? view->klass->descriptor.c_str() : "?",
-                      (void*)activity);
+    __android_log_print(ANDROID_LOG_INFO, "DexVmWindow", "win=%p setContentView(%s) owner=%p",
+                        (void*)self,
+                        view->klass != nullptr ? view->klass->descriptor.c_str() : "?",
+                        (void*)activity);
 #endif
-  SetActivityContentView(activity, view);
+    SetActivityContentView(activity, view);
+    return Value{};
+  }
+  // Dialog/普通 Window：内容归属窗口自身（lib Window.mContentView）；decor
+  // 已建时同步挂入 android.R.id.content 容器（AppCompat installContent 口径）。
+  VObject* view = nullptr;
+  if (is_view) {
+    view = reinterpret_cast<VObject*>(const_cast<ObjHeader*>(args[0].ref));
+  } else {
+    bool iok = true;
+    view = InflateWindowContentView(state, self, static_cast<uint32_t>(args[0].i), &iok);
+    if (!iok) {
+      *ok = false;
+      return Value{};
+    }
+  }
+  if (view == nullptr) return Value{};
+  if (VField* f = FindInstanceField(self->klass, "mContentView")) {
+    SetRefField(self, f->offset, reinterpret_cast<ObjHeader*>(view));
+  }
+#if defined(__ANDROID__)
+  __android_log_print(ANDROID_LOG_INFO, "DexVmWindow", "win=%p setContentView(dialog %s)",
+                      (void*)self,
+                      view->klass != nullptr ? view->klass->descriptor.c_str() : "?");
+#endif
+  auto cit = g_content_by_window.find(reinterpret_cast<ObjHeader*>(self));
+  if (cit != g_content_by_window.end() && cit->second != nullptr) {
+    VGRemoveAllViews(state, cit->second, nullptr, 0, ok);
+    if (!*ok) return Value{};
+    AddChildV(state, cit->second, view);
+  }
   return Value{};
 }
 

@@ -28,5 +28,8 @@ void GcAttach(runtime::VMState& state);
 using ExternalMarkFn = void (*)(void* mark_ctx, void* obj);
 using ExternalRootVisitorFn = void (*)(void* ctx, ExternalMarkFn mark, void* mark_ctx);
 void SetExternalRootVisitor(ExternalRootVisitorFn fn, void* ctx);
+// 追加一个外部根提供者（互不覆盖：点击登记表 + Dialog 窗口登记表等）。
+// 相同 (fn, ctx) 幂等；GC 标记期持有同一互斥锁。
+void AddExternalRootVisitor(ExternalRootVisitorFn fn, void* ctx);
 
 }  // namespace dexvm::gc

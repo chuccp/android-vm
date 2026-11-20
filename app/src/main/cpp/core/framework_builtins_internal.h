@@ -37,6 +37,8 @@ Value ActSetContentView(VMState& state, VObject* self, const Value* args, size_t
 // 资源布局膨胀面（core/framework_inflate.cc）：setContentView(int)/
 // findViewById(int)/addContentView(View, LayoutParams)。
 Value ActSetContentViewInt(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+// Window.setContentView(int)（Dialog/无 owner 窗口）：返回 inflate 出的内容根。
+VObject* InflateWindowContentView(VMState& state, VObject* window, uint32_t res_id, bool* ok);
 Value ActFindViewById(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ActAddContentView(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 // addContentView 覆盖层登记（首帧管线 traversal 后按窗口原点重排）

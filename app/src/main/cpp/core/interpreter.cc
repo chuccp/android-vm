@@ -20,6 +20,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -958,6 +959,10 @@ namespace {
 // 原子交换）；宿主侧采样线程周期性读取，定位 MainActivity.onCreate 内的热点。
 std::atomic<bool> g_method_profile_on{false};
 std::atomic<VMethod*> g_current_method{nullptr};
+// 采样读者闸门：采样线程在共享锁内读取 g_current_method 并拷出描述串；
+// 关闭采样（随后调用方会销毁 linker）取独占锁——保证返回后不再有读者
+// 解引用 VMethod*（修复会话失败拆栈时采样线程踩释放内存的 SIGSEGV）。
+std::shared_mutex g_profile_gate;
 
 struct MethodProfileGuard {
   VMethod* prev = nullptr;
@@ -1502,8 +1507,18 @@ bool DoPolymorphicCall(VMState& state, Frame& frame, const CallSite& cs, uint16_
 
 // 采样控制面定义放在外层匿名命名空间之外，保证外部链接（jni 可引用）。
 void SetGuestMethodProfile(bool on) {
-  g_method_profile_on.store(on, std::memory_order_relaxed);
-  if (!on) g_current_method.store(nullptr, std::memory_order_relaxed);
+  // 开关切换与采样读者的生命周期同步：开 = 先清残留指针再放开（上一个
+  // 会话的 VMethod 可能已随 linker 销毁）；关 = 先置位再排空读者，返回后
+  // 调用方可安全销毁 linker。
+  if (on) {
+    std::unique_lock<std::shared_mutex> lk(g_profile_gate);
+    g_current_method.store(nullptr, std::memory_order_relaxed);
+    g_method_profile_on.store(true, std::memory_order_relaxed);
+  } else {
+    g_method_profile_on.store(false, std::memory_order_relaxed);
+    std::unique_lock<std::shared_mutex> lk(g_profile_gate);
+    g_current_method.store(nullptr, std::memory_order_relaxed);
+  }
 }
 
 bool GuestMethodProfileEnabled() {
@@ -1512,6 +1527,16 @@ bool GuestMethodProfileEnabled() {
 
 VMethod* CurrentGuestMethod() {
   return g_current_method.load(std::memory_order_relaxed);
+}
+
+bool FormatCurrentGuestMethod(std::string* out) {
+  if (!g_method_profile_on.load(std::memory_order_relaxed)) return false;
+  std::shared_lock<std::shared_mutex> lk(g_profile_gate);
+  if (!g_method_profile_on.load(std::memory_order_relaxed)) return false;
+  VMethod* m = g_current_method.load(std::memory_order_relaxed);
+  if (m == nullptr || m->declaring == nullptr) return false;
+  if (out != nullptr) *out = m->declaring->descriptor + "." + m->name;
+  return true;
 }
 
 // 类定义完整性防御（interpreter.h；M4.3 SIGSEGV 根因防御，见声明注释）

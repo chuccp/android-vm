@@ -6,7 +6,7 @@ import java.util.ArrayList;
  * 可标记字符串构建器（AOSP android.text.SpannableStringBuilder 公开面；
  * §31.7 C 档 lib——复杂类禁 native：StringBuilder 文本态 + span 表纯逻辑）。
  */
-public class SpannableStringBuilder implements Spannable, Appendable, CharSequence {
+public class SpannableStringBuilder implements Editable, Appendable, CharSequence {
 
     private final StringBuilder mText = new StringBuilder();
     private final ArrayList<Object> mSpans = new ArrayList<Object>();
@@ -41,6 +41,11 @@ public class SpannableStringBuilder implements Spannable, Appendable, CharSequen
     @Override
     public CharSequence subSequence(int start, int end) {
         return this.mText.substring(start, end);
+    }
+
+    @Override
+    public void getChars(int start, int end, char[] dest, int destoff) {
+        this.mText.getChars(start, end, dest, destoff);
     }
 
     @Override
@@ -96,6 +101,12 @@ public class SpannableStringBuilder implements Spannable, Appendable, CharSequen
         return this;
     }
 
+    public SpannableStringBuilder replace(CharSequence source, int start, int end,
+                                          int destStart, int destEnd) {
+        return replace(destStart, destEnd,
+                source != null ? source.subSequence(start, end) : "");
+    }
+
     public SpannableStringBuilder replace(int start, int end, CharSequence text, int tstart,
                                           int tend) {
         this.mText.replace(start, end, text != null ? text.subSequence(tstart, tend).toString() : "");
@@ -109,10 +120,9 @@ public class SpannableStringBuilder implements Spannable, Appendable, CharSequen
         return this;
     }
 
-    public SpannableStringBuilder clearSpans() {
+    public void clearSpans() {
         this.mSpans.clear();
         this.mSpanRange.clear();
-        return this;
     }
 
     @Override

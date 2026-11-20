@@ -29,4 +29,18 @@ public interface Editable extends CharSequence, GetChars, Spannable, Appendable 
     Editable append(char text);
 
     void clearSpans();
+
+    /**
+     * AOSP：Editable 工厂（默认实现创建 SpannableStringBuilder）。
+     * 壳层 ClickableSpan 工厂（b0.e.a.b 等）直接继承本类并覆写
+     * newEditable——缺本类会让整条继承链 define/link 失败。
+     */
+    class Factory {
+        public Factory() {
+        }
+
+        public Editable newEditable(CharSequence source) {
+            return new SpannableStringBuilder(source);
+        }
+    }
 }
