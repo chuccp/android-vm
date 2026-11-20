@@ -22,6 +22,13 @@ void SetDialogHostView(VObject* content, int32_t width, int32_t height);
 Value VmDialogShow(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value VmDialogDismiss(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 
+// PopupWindow 叠加窗口：内容根按 (x,y) 定位（guest 坐标 = 锚点下方/指定点），
+// 宽高意图同 Dialog（MATCH_PARENT=-1 / WRAP_CONTENT=-2 / px）；token 为宿主
+// 弹层桥身份（宿主外点关闭/内容点击经 nativeDispatchPopupEvent 回灌）。
+void ShowPopupWindow(VMState& state, VObject* popup, VObject* content, int32_t x, int32_t y,
+                     int32_t width, int32_t height, uint32_t token);
+void DismissPopupWindow(VMState& state, VObject* popup);
+
 // 快照前布局所有登记窗口（measure/layout）；返回当前可见窗口数。
 size_t LayoutDialogWindows(VMState& state);
 
@@ -29,6 +36,8 @@ size_t LayoutDialogWindows(VMState& state);
 struct DialogWindowInfo {
   VObject* content = nullptr;
   float dim = 0.0f;
+  int32_t kind = 0;      // 0 = dialog / 1 = popup
+  uint32_t token = 0;    // popup：宿主弹层桥身份
 };
 size_t CollectDialogWindows(DialogWindowInfo* out, size_t max);
 

@@ -1066,8 +1066,9 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
         }
       };
   walk(content_view, kNoObject, 0);
-  // Dialog 窗口根：guest 侧登记的叠加内容树（Dialog 对象不出 guest；宿主只
-  // 看到视图根 + kPropWindowDim）。逻辑窗口布局在 walk 前由 VM 完成。
+  // Dialog / PopupWindow 窗口根：guest 侧登记的叠加内容树（Dialog 对象不出
+  // guest；宿主只看到视图根 + kPropWindowDim/kPropWindowPopupToken）。逻辑
+  // 窗口布局在 walk 前由 VM 完成。
   dexvm::runtime::LayoutDialogWindows(state);
   dexvm::runtime::DialogWindowInfo dialogs[8] = {};
   const size_t dialog_count = dexvm::runtime::CollectDialogWindows(dialogs, 8);
@@ -1080,6 +1081,12 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
       dim.key = kPropWindowDim;
       dim.value = PropValue::Float(dialogs[i].dim);
       snap.nodes[before].props.push_back(std::move(dim));
+      if (dialogs[i].kind == 1) {
+        Prop token;
+        token.key = kPropWindowPopupToken;
+        token.value = PropValue::Int(static_cast<int32_t>(dialogs[i].token));
+        snap.nodes[before].props.push_back(std::move(token));
+      }
     }
   }
   RebuildChildren(snap);  // children 向量（由 parent_id 重建）

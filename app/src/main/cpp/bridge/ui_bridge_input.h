@@ -73,6 +73,15 @@ std::string InjectGuestObjectMenuClick(dexvm::runtime::VMState* vm_state, uint32
 std::string InjectGuestObjectFields(dexvm::runtime::VMState* vm_state, uint32_t object_id,
                                     int32_t a, int32_t b, int32_t c);
 
+// 窗口类弹层回灌：token + kind -> guest 弹层对象（PopupMenu/PopupWindow）。
+//   kind=0 菜单项点击：onHostMenuItemClick(index)（lib PopupMenu 派发
+//          OnMenuItemClickListener 并关闭）；
+//   kind=1 宿主外点关闭：onHostDismissed() + 摘除 PopupWindow 叠加根。
+// 状态串："dispatched token=N menu-index=I" / "dispatched token=N dismissed" /
+//         "no-popup token=N" / channel-ok …
+std::string InjectGuestObjectPopup(dexvm::runtime::VMState* vm_state, uint32_t token,
+                                   int32_t kind, int32_t index);
+
 // 该 guest View 是否登记了 long-click 监听器（快照 kPropHasLongClickListener 用）。
 bool HasGuestLongClickListener(dexvm::runtime::VObject* view);
 

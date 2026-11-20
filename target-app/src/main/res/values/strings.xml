@@ -56,6 +56,8 @@
     <string name="xml_dialog_action">Show VM dialog</string>
     <string name="xml_alert_action">Show AlertDialog</string>
     <string name="xml_toast_action">Show Toast</string>
+    <string name="xml_popupmenu_action">Show PopupMenu</string>
+    <string name="xml_popupwindow_action">Show PopupWindow</string>
     <string name="xml_okhttp_action">Fetch Baidu HTML (OkHttp)</string>
     <string name="xml_programmatic_prefix">Programmatic VM panel</string>
     <string name="xml_touch_prefix">Touch count</string>

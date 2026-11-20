@@ -49,6 +49,12 @@ struct DialogEntry {
   int32_t height = kWrapContent;
   int32_t gravity = -1;
   float dim = 0.32f;
+  // PopupWindow 叠加层：kind=1 时 (x,y) 为 guest 坐标定位，token 为宿主弹层
+  // 桥身份（外点关闭回灌）。
+  int32_t kind = 0;
+  int32_t x = 0;
+  int32_t y = 0;
+  uint32_t token = 0;
 };
 
 std::vector<DialogEntry>& Registry() {
@@ -115,12 +121,16 @@ void EnsureDialogRootsRegistered() {
 }
 
 // 单个窗口的 measure/layout（Window 宽高意图 -> spec；默认居中）。
+// PopupWindow 叠加层：不带 dim + 不收窄留白，位置取登记时的 guest 坐标
+// （AOSP showAsDropDown/showAtLocation 的锚定结果），越界时向屏幕内侧收。
 void LayoutOne(VMState& state, DialogEntry& e) {
   if (e.content == nullptr || e.content->klass == nullptr) return;
   const int32_t host_w = DialogHostWidth();
   const int32_t host_h = DialogHostHeight();
-  const int32_t avail_w = std::max(1, host_w - 2 * kDialogMargin);
-  const int32_t avail_h = std::max(1, host_h - 2 * kDialogMargin);
+  const bool is_popup = e.kind == 1;
+  const int32_t margin = is_popup ? 8 : kDialogMargin;
+  const int32_t avail_w = std::max(1, host_w - 2 * margin);
+  const int32_t avail_h = std::max(1, host_h - 2 * margin);
 
   int32_t width_spec_mode = kModeAtMost;
   int32_t width_size = avail_w;
@@ -158,23 +168,29 @@ void LayoutOne(VMState& state, DialogEntry& e) {
 
   const int32_t g = e.gravity;
   int32_t left;
-  if (g == kGravityLeft || g == kGravityStart) {
+  int32_t top;
+  if (is_popup) {
+    // 弹层按锚点坐标定位；只做屏幕内收边（AOSP 同样会移入屏幕）。
+    left = e.x;
+    top = e.y;
+  } else if (g == kGravityLeft || g == kGravityStart) {
     left = kDialogMargin;
   } else if (g == kGravityRight || g == kGravityEnd) {
     left = host_w - cw - kDialogMargin;
   } else {
     left = (host_w - cw) / 2;
   }
-  int32_t top;
-  if (g == kGravityTop) {
-    top = kDialogMargin;
-  } else if (g == kGravityBottom) {
-    top = host_h - ch - kDialogMargin;
-  } else {
-    (void)kGravityCenter;
-    (void)kGravityCenterHorizontal;
-    (void)kGravityCenterVertical;
-    top = (host_h - ch) / 2;
+  if (!is_popup) {
+    if (g == kGravityTop) {
+      top = kDialogMargin;
+    } else if (g == kGravityBottom) {
+      top = host_h - ch - kDialogMargin;
+    } else {
+      (void)kGravityCenter;
+      (void)kGravityCenterHorizontal;
+      (void)kGravityCenterVertical;
+      top = (host_h - ch) / 2;
+    }
   }
   left = std::max(0, std::min(left, host_w - cw));
   top = std::max(0, std::min(top, host_h - ch));
@@ -228,7 +244,12 @@ Value VmDialogShow(VMState& state, VObject* self, const Value* args, size_t n, b
   }
   if (!replaced) reg.push_back(entry);
   EnsureDialogRootsRegistered();
-  LayoutOne(state, reg.back());
+  for (auto& e : reg) {
+    if (e.dialog == dialog) {
+      LayoutOne(state, e);
+      break;
+    }
+  }
   // 窗口根出现/内容变化 -> 下一轮 traversal 重绘
   RequestGuestLayout();
   return Value{};
@@ -257,6 +278,59 @@ size_t LayoutDialogWindows(VMState& state) {
   return reg.size();
 }
 
+void ShowPopupWindow(VMState& state, VObject* popup, VObject* content, int32_t x, int32_t y,
+                     int32_t width, int32_t height, uint32_t token) {
+  if (popup == nullptr || content == nullptr) return;
+  Diag("show popup class=",
+       std::string(popup->klass != nullptr ? popup->klass->descriptor : "?") + " content=" +
+           (content->klass != nullptr ? content->klass->descriptor : "?") + " at " +
+           std::to_string(x) + "," + std::to_string(y) + " token=" + std::to_string(token));
+  DialogEntry entry;
+  entry.dialog = popup;
+  entry.content = content;
+  entry.width = width;
+  entry.height = height;
+  entry.dim = 0.0f;
+  entry.kind = 1;
+  entry.x = x;
+  entry.y = y;
+  entry.token = token;
+
+  auto& reg = Registry();
+  bool replaced = false;
+  for (auto& e : reg) {
+    if (e.dialog == popup || e.content == content) {
+      e = entry;
+      replaced = true;
+      break;
+    }
+  }
+  if (!replaced) reg.push_back(entry);
+  EnsureDialogRootsRegistered();
+  // 用登记后的条目布局（替换位置可能不在表尾）。
+  for (auto& e : reg) {
+    if (e.dialog == popup) {
+      LayoutOne(state, e);
+      break;
+    }
+  }
+  RequestGuestLayout();
+}
+
+void DismissPopupWindow(VMState& state, VObject* popup) {
+  (void)state;
+  if (popup == nullptr) return;
+  auto& reg = Registry();
+  for (auto it = reg.begin(); it != reg.end(); ++it) {
+    if (it->dialog == popup) {
+      reg.erase(it);
+      Diag("dismiss popup", "content=" + std::to_string(reinterpret_cast<uintptr_t>(popup)));
+      RequestGuestLayout();
+      break;
+    }
+  }
+}
+
 size_t CollectDialogWindows(DialogWindowInfo* out, size_t max) {
   if (out == nullptr || max == 0) return 0;
   auto& reg = Registry();
@@ -265,6 +339,8 @@ size_t CollectDialogWindows(DialogWindowInfo* out, size_t max) {
     if (count >= max) break;
     out[count].content = e.content;
     out[count].dim = e.dim;
+    out[count].kind = e.kind;
+    out[count].token = e.token;
     count++;
   }
   return count;

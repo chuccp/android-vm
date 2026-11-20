@@ -100,6 +100,9 @@ enum PropKey : uint16_t {
                               //            （\n 连接；宿主真控件重建下拉项）
   kPropDate = 36,             // kRect    — DatePicker mYear/mMonth/mDay
   kPropTime = 37,             // kPoint   — TimePicker mHour/mMinute
+  kPropWindowPopupToken = 38, // kInt     — PopupWindow 叠加根身份（>0；宿主物化
+                              //            浮层卡片 + 外点关闭回灌
+                              //            nativeDispatchPopupEvent(token,1,0)）
 };
 
 struct PropValue {

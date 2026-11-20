@@ -126,6 +126,7 @@ public final class UiBridgeMaterializer {
     private static final int PROP_SUGGESTIONS = 35;
     private static final int PROP_DATE = 36;
     private static final int PROP_TIME = 37;
+    private static final int PROP_WINDOW_POPUP_TOKEN = 38;
 
     private static final int TYPE_INT = 1;
     private static final int TYPE_FLOAT = 2;
@@ -272,6 +273,19 @@ public final class UiBridgeMaterializer {
     public int dirtyCount() { return dirtyCount; }
 
     public View rootView() { return root; }
+
+    /**
+     * 按 guest mId 寻址宿主物化 View（弹层锚点解析：PopupMenu 以 guest 锚点
+     * 视图的 mId 定位宿主真视图）。找不到返回 null。
+     */
+    public View findViewByGuestId(int guestViewId) {
+        if (guestViewId == 0 || guestViewId == -1) return null;
+        for (Map.Entry<Integer, View> e : views.entrySet()) {
+            Node n = nodes.get(e.getKey());
+            if (n != null && n.guestViewId == guestViewId) return e.getValue();
+        }
+        return null;
+    }
 
     /** 全量/增量 envelope 应用 -> 物化（增量为 patch 时就地更新现有树）。 */
     public Result apply(byte[] envelope) {
@@ -623,7 +637,7 @@ public final class UiBridgeMaterializer {
         return v;
     }
 
-    /** 多根快照（Activity 根 + Dialog 窗口根）：wrapper 托管叠加层。 */
+    /** 多根快照（Activity 根 + Dialog/PopupWindow 窗口根）：wrapper 托管叠加层。 */
     private View materializeMultiRoot(List<Node> roots) {
         HostFrameLayout wrapper = new HostFrameLayout(context);
         overlayWrapper = wrapper;
@@ -636,7 +650,19 @@ public final class UiBridgeMaterializer {
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT));
             }
+            Prop popup = r.prop(PROP_WINDOW_POPUP_TOKEN);
+            if (popup != null && popup.asInt() > 0) {
+                View dismissLayer = makePopupDismissLayer(popup.asInt());
+                dialogScrims.put(r.objectId, dismissLayer);
+                wrapper.addView(dismissLayer, new ViewGroup.MarginLayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
+            }
             View v = materializeTree(r);
+            if (popup != null && popup.asInt() > 0) {
+                // 浮层卡片：elevation 投影，与宿主真 PopupWindow 视觉对齐。
+                v.setElevation(dpToPx(8));
+            }
             wrapper.addView(v, absoluteLayoutParams(r));
         }
         return wrapper;
@@ -652,6 +678,28 @@ public final class UiBridgeMaterializer {
             @Override public void onClick(View v) { }
         });
         return scrim;
+    }
+
+    /**
+     * PopupWindow 外点关闭层：透明全屏可点击（浮层卡片之下的兄弟节点），
+     * 点击经 nativeDispatchPopupEvent(token, 1, 0) 回灌 guest OnDismissListener。
+     */
+    private View makePopupDismissLayer(final int token) {
+        View layer = new View(context);
+        layer.setBackgroundColor(0x00000000);
+        layer.setClickable(true);
+        layer.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                String status;
+                try {
+                    status = NativeBridge.nativeDispatchPopupEvent(token, 1, 0);
+                } catch (Throwable t) {
+                    status = "error: " + t;
+                }
+                Log.i(TAG, "host popup token=" + token + " outside tap -> " + status);
+            }
+        });
+        return layer;
     }
 
     private ViewGroup.MarginLayoutParams absoluteLayoutParams(Node node) {
@@ -1582,8 +1630,8 @@ public final class UiBridgeMaterializer {
                     if (parent != null) {
                         attach(parent, v, node, parentNode);
                     } else if (!nodes.containsKey(node.parentId)) {
-                        // 窗口根（parent_id = kNoObject = -1）：Dialog 内容树
-                        // 作为叠加根挂到 wrapper（宿主不知道 Dialog 对象）。
+                        // 窗口根（parent_id = kNoObject = -1）：Dialog / PopupWindow
+                        // 内容树作为叠加根挂到 wrapper（宿主不知道窗口对象）。
                         HostFrameLayout wrapper = ensureOverlayWrapper();
                         Prop dim = node.prop(PROP_WINDOW_DIM);
                         if (dim != null && dim.f > 0f) {
@@ -1593,6 +1641,15 @@ public final class UiBridgeMaterializer {
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT));
                         }
+                        Prop popup = node.prop(PROP_WINDOW_POPUP_TOKEN);
+                        if (popup != null && popup.asInt() > 0) {
+                            View dismissLayer = makePopupDismissLayer(popup.asInt());
+                            dialogScrims.put(node.objectId, dismissLayer);
+                            wrapper.addView(dismissLayer, new ViewGroup.MarginLayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT));
+                            v.setElevation(dpToPx(8));
+                        }
                         wrapper.addView(v, absoluteLayoutParams(node));
                         Prop rb = node.prop(PROP_BOUNDS);
                         Prop rd = node.prop(PROP_WINDOW_DIM);
@@ -1601,6 +1658,7 @@ public final class UiBridgeMaterializer {
                                 + (rb != null ? rb.rect[0] + "," + rb.rect[1] + ","
                                         + rb.rect[2] + "," + rb.rect[3] : "none")
                                 + " dim=" + (rd != null ? rd.f : -1f)
+                                + " popupToken=" + (popup != null ? popup.asInt() : 0)
                                 + " wrapperKids=" + wrapper.getChildCount()
                                 + " v=" + v.getClass().getSimpleName());
                     }

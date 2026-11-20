@@ -1802,6 +1802,17 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
         VmDialogShow);
     AddIntrinsicMethod(vm_layout_host, "dismissDialog", {"Ljava/lang/Object;"}, "V", stat,
                        VmDialogDismiss);
+    // 窗口类弹层：PopupMenu（宿主真弹层菜单）/ PopupWindow（叠加浮层卡片）。
+    AddIntrinsicMethod(vm_layout_host, "showPopupMenu",
+                       {"Ljava/lang/Object;", "Landroid/view/View;", "[Ljava/lang/String;"},
+                       "V", stat, VmPopupShowMenu);
+    AddIntrinsicMethod(vm_layout_host, "dismissPopupMenu", {"Ljava/lang/Object;"}, "V", stat,
+                       VmPopupDismissMenu);
+    AddIntrinsicMethod(vm_layout_host, "showPopupWindow",
+                       {"Ljava/lang/Object;", "Landroid/view/View;", "I", "I", "I", "I"}, "V",
+                       stat, VmPopupShowWindow);
+    AddIntrinsicMethod(vm_layout_host, "dismissPopupWindow", {"Ljava/lang/Object;"}, "V", stat,
+                       VmPopupDismissWindow);
   }
 
   // android.content.res.VmAssets：lib AssetManager.open 的资产读取钩子

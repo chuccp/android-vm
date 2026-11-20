@@ -198,6 +198,23 @@ Java_com_dexvm_host_NativeBridge_nativeDispatchViewFields(JNIEnv* env, jclass, j
   return env->functions->NewStringUTF(env, status.c_str());
 }
 
+// 弹层回灌（PopupMenu 菜单项点击 / PopupWindow 外点关闭）：token + kind + index。
+extern "C" bool DexVmSessionEnqueuePopupEvent(uint32_t token, int32_t kind, int32_t index);
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchPopupEvent(JNIEnv* env, jclass, jint token,
+                                                          jint kind, jint index) {
+  uint32_t t = static_cast<uint32_t>(token);
+  std::string status;
+  if (DexVmSessionEnqueuePopupEvent(t, kind, index)) {
+    status = "queued token=" + std::to_string(t) + " kind=" + std::to_string(kind) +
+             " index=" + std::to_string(index);
+  } else {
+    status = dexvm::bridge::InjectGuestObjectPopup(nullptr, t, kind, index);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
 #else  // !__ANDROID__（宿主测试构建不编本 TU 的 JNI 段）
 
 namespace dexvm::bridge {

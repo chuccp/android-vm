@@ -456,6 +456,20 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/runtime_gap"
                         android:text="@string/xml_toast_action" />
+
+                    <Button
+                        android:id="@+id/runtime_popupmenu_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/xml_popupmenu_action" />
+
+                    <Button
+                        android:id="@+id/runtime_popupwindow_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/xml_popupwindow_action" />
                 </LinearLayout>
 
                 <!-- Network -->

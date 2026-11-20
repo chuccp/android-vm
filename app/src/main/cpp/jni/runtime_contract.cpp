@@ -52,6 +52,7 @@
 #include "core/intrinsic.h"
 #include "core/notification_bridge.h"
 #include "core/toast_bridge.h"
+#include "core/popup_bridge.h"
 #include "core/sensor_bridge.h"
 #include "core/tls_bridge.h"
 #include "dex/dex_file.h"
@@ -211,6 +212,19 @@ jbyteArray NativeToastTake(JNIEnv* env, jclass) {
   return arr;
 }
 
+// 宿主弹层桥：PopupMenuBridge.java 分发线程阻塞取一条请求（200ms 超时返 null）。
+jbyteArray NativePopupTake(JNIEnv* env, jclass) {
+  dexvm::runtime::HostPopupRequest req;
+  if (!dexvm::runtime::TakeHostPopupRequest(&req, 200)) return nullptr;
+  std::string bytes = dexvm::runtime::EncodeHostPopupRequest(req);
+  jbyteArray arr = env->functions->NewByteArray(env, static_cast<jsize>(bytes.size()));
+  if (arr != nullptr) {
+    env->functions->SetByteArrayRegion(env, arr, 0, static_cast<jsize>(bytes.size()),
+                                       reinterpret_cast<const jbyte*>(bytes.data()));
+  }
+  return arr;
+}
+
 jstring NativeGetRunProgress(JNIEnv* env, jclass) {
   std::string snapshot = ProgressSnapshot();
   return env->functions->NewStringUTF(env, snapshot.c_str());
@@ -356,6 +370,9 @@ struct ApkSessionState {
   int32_t pending_fields_a = 0;
   int32_t pending_fields_b = 0;
   int32_t pending_fields_c = 0;
+  uint32_t pending_popup_token = 0;   // 弹层回灌 token（0 = 无）
+  int32_t pending_popup_kind = 0;     // 0 菜单项点击 / 1 外点关闭
+  int32_t pending_popup_index = 0;    // 菜单项序号
   std::deque<std::vector<uint8_t>> frames;  // UIBridge envelope 有序队列（full+patch）
 };
 ApkSessionState g_session_state;
@@ -367,7 +384,7 @@ bool SessionWakePred(void* arg) {
          s->pending_long_object != 0 || s->pending_text_object != 0 ||
          s->pending_seek_object != 0 || s->pending_rating_object != 0 ||
          s->pending_drawer_object != 0 || s->pending_menu_object != 0 ||
-         s->pending_fields_object != 0;
+         s->pending_fields_object != 0 || s->pending_popup_token != 0;
 }
 
 // M4.1/M4.2 设备化入口：引导 VM 跑目标 APK 全生命周期链 + 首帧管线
@@ -2863,6 +2880,9 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
           int32_t fields_a = 0;
           int32_t fields_b = 0;
           int32_t fields_c = 0;
+          uint32_t popup_token = 0;
+          int32_t popup_kind = 0;
+          int32_t popup_index = 0;
           bool stop = false;
           {
             std::lock_guard<std::mutex> lk(g_session_state.mu);
@@ -2884,6 +2904,9 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             fields_a = g_session_state.pending_fields_a;
             fields_b = g_session_state.pending_fields_b;
             fields_c = g_session_state.pending_fields_c;
+            popup_token = g_session_state.pending_popup_token;
+            popup_kind = g_session_state.pending_popup_kind;
+            popup_index = g_session_state.pending_popup_index;
             g_session_state.pending_click = -1;
             g_session_state.pending_object_click = 0;
             g_session_state.pending_long_object = 0;
@@ -2901,6 +2924,9 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             g_session_state.pending_fields_a = 0;
             g_session_state.pending_fields_b = 0;
             g_session_state.pending_fields_c = 0;
+            g_session_state.pending_popup_token = 0;
+            g_session_state.pending_popup_kind = 0;
+            g_session_state.pending_popup_index = 0;
             stop = g_session_state.stop_requested;
           }
           if (object_click != 0) {
@@ -2950,6 +2976,11 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
                 &s, fields_object, fields_a, fields_b, fields_c);
             ProgressAppend("session fields objectId=" + std::to_string(fields_object) + ": " +
                            status);
+          }
+          if (popup_token != 0) {
+            std::string status =
+                dexvm::bridge::InjectGuestObjectPopup(&s, popup_token, popup_kind, popup_index);
+            ProgressAppend("session popup token=" + std::to_string(popup_token) + ": " + status);
           }
           if (stop) break;
           // 设备验证探针（marker 文件）：走真实 Dialog.show/dismiss 全链路
@@ -5190,6 +5221,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeSensorPush", "(I[FJ)V", reinterpret_cast<void*>(NativeSensorPush)},
     {"nativeNotificationTake", "()[B", reinterpret_cast<void*>(NativeNotificationTake)},
     {"nativeToastTake", "()[B", reinterpret_cast<void*>(NativeToastTake)},
+    {"nativePopupTake", "()[B", reinterpret_cast<void*>(NativePopupTake)},
     {"nativeRunTlsSelfTest", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(NativeRunTlsSelfTest)},
     {"nativeRunExam", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
@@ -5301,6 +5333,18 @@ extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueFields
   g_session_state.pending_fields_a = a;
   g_session_state.pending_fields_b = b;
   g_session_state.pending_fields_c = c;
+  return true;
+}
+
+// 窗口类弹层回灌入队（kind：0 菜单项点击 / 1 外点关闭；token = 弹层身份）。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueuePopupEvent(
+    uint32_t token, int32_t kind, int32_t index) {
+  if (token == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_popup_token = token;
+  g_session_state.pending_popup_kind = kind;
+  g_session_state.pending_popup_index = index;
   return true;
 }
 

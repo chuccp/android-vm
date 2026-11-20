@@ -56,6 +56,12 @@ public final class NativeBridge {
      */
     public static native byte[] nativeToastTake();
 
+    /**
+     * 宿主弹层桥：阻塞取一条 guest PopupMenu 请求（200ms 超时返回 null；
+     * 小端线格式见 core/popup_bridge.h）。由 PopupMenuBridge 分发线程调用。
+     */
+    public static native byte[] nativePopupTake();
+
     /** 当前运行进度日志快照（VM/考卷线程写入；UI 轮询显示，线程安全）。 */
     public static native String nativeGetRunProgress();
 
@@ -142,6 +148,12 @@ public final class NativeBridge {
 
     /** DatePicker/TimePicker 字段回灌：objectId + (a,b,c)（年月日 / 时分）。 */
     public static native String nativeDispatchViewFields(int objectId, int a, int b, int c);
+
+    /**
+     * 窗口类弹层回灌：token + kind（0 菜单项点击 / 1 外点关闭）+ index。
+     * 由 PopupMenuBridge / 物化层浮层消费者调用（见 core/popup_bridge.h）。
+     */
+    public static native String nativeDispatchPopupEvent(int token, int kind, int index);
 
     /**
      * M3 加固考卷设备化：exam_smoke 同款引导 + LifecycleDriver 驱动 + 逐 phase/缺口

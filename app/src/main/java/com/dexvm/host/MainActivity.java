@@ -97,6 +97,9 @@ public class MainActivity extends Activity {
     private boolean sessionMode = false;
     private boolean sessionExitRequested = false;
     private UiBridgeMaterializer sessionMaterializer;
+    // 弹层桥线程常驻，只能持有静态解析目标（不能捕获 Activity 实例——
+    // Activity 重建后旧实例无法回收，且锚点会解析到过期物化树）。
+    private static volatile UiBridgeMaterializer sPopupMaterializer;
     private View sessionRootView;
     private int sessionFramesApplied = 0;
     private Runnable sessionPoll;
@@ -620,6 +623,7 @@ public class MainActivity extends Activity {
         sessionMode = true;
         sessionExitRequested = false;
         sessionMaterializer = null;
+        sPopupMaterializer = null;
         sessionRootView = null;
         sessionFramesApplied = 0;
         running = true;
@@ -642,6 +646,15 @@ public class MainActivity extends Activity {
         // 宿主 Toast 桥：guest Toast.show() -> 宿主真 Toast 提示。
         try {
             ToastBridge.start(this);
+        } catch (Throwable ignored) {
+        }
+        // 宿主弹层桥：guest PopupMenu.show() -> 宿主真 PopupMenu（锚点按
+        // guest mId 解析到物化视图；点击/关闭经 nativeDispatchPopupEvent 回灌）。
+        try {
+            PopupMenuBridge.start(this, guestId -> {
+                UiBridgeMaterializer mat = sPopupMaterializer;
+                return mat != null ? mat.findViewByGuestId(guestId) : null;
+            });
         } catch (Throwable ignored) {
         }
         // 等 guestSlot 尺寸收敛后按内容区宽高比确定 guest 逻辑窗口高度：
@@ -789,6 +802,7 @@ public class MainActivity extends Activity {
             UiBridgeMaterializer.Result r = mat.apply(env);
             if (r.root != null) {
                 sessionMaterializer = mat;
+                sPopupMaterializer = mat;
                 sessionRootView = r.root;
                 replaceGuestRoot(r.root);
             }

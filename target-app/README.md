@@ -89,7 +89,12 @@ dex 规模 5 个 classes*.dex（三方占大头）。
   `Show VM dialog` 按钮经 lib `android.app.Dialog` + `Window` 弹出宿主叠加层（dim 遮罩 + 多根物化 +
   Dismiss 回灌）；`Show AlertDialog` 经 lib `android.app.AlertDialog.Builder`（标题/正文/三键）弹出
   叠加弹窗，按钮点击回灌 `DialogInterface.OnClickListener`；`Show Toast` 经 lib `android.widget.Toast`
-  → 宿主 `ToastBridge` 用真系统 Toast 呈现。宿主交互回灌：EditText 键入 → guest `setText` +
+  → 宿主 `ToastBridge` 用真系统 Toast 呈现；`Show PopupMenu` 经 lib `android.widget.PopupMenu` → 宿主
+  真 `android.widget.PopupMenu`（原生弹层动画/阴影/外点关闭），菜单项点击经
+  `nativeDispatchPopupEvent(token,0,index)` 回灌 `OnMenuItemClickListener`，外点关闭回灌
+  `OnDismissListener`；`Show PopupWindow` 经 lib `android.widget.PopupWindow`，内容树登记为独立叠加
+  窗口根（无 dim、按锚点坐标定位，宿主物化浮层卡片 + elevation），外点关闭经
+  `nativeDispatchPopupEvent(token,1,0)` 回灌 `OnDismissListener`。宿主交互回灌：EditText 键入 → guest `setText` +
   `TextWatcher` 三回调；登记 `OnLongClickListener` 的视图（画廊标题）长按 → guest `performLongClick`；
   SeekBar 拖拽 → guest `OnSeekBarChangeListener`（fromUser=true + 起止跟踪）。
   footer 的 ScrollView 由宿主物化为真 `android.widget.ScrollView`（内容可滚动）

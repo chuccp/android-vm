@@ -30,6 +30,8 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.PopupMenu;
+import android.widget.PopupWindow;
 import android.widget.ProgressBar;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -563,6 +565,61 @@ public final class MainActivity extends Activity {
                 capabilityStatus.setText("Toast shown");
             });
         }
+
+        Button popupMenuButton = (Button) findViewById(R.id.runtime_popupmenu_action);
+        if (popupMenuButton != null) {
+            popupMenuButton.setOnClickListener(view -> showGuestPopupMenu(view));
+        }
+
+        Button popupWindowButton = (Button) findViewById(R.id.runtime_popupwindow_action);
+        if (popupWindowButton != null) {
+            popupWindowButton.setOnClickListener(view -> showGuestPopupWindow(view));
+        }
+    }
+
+    /** lib PopupMenu -> 宿主真 android.widget.PopupMenu（菜单项点击回灌）。 */
+    private void showGuestPopupMenu(View anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        popup.getMenu().add(0, 1, 0, "Copy");
+        popup.getMenu().add(0, 2, 1, "Share");
+        popup.getMenu().add(0, 3, 2, "Delete");
+        popup.setOnMenuItemClickListener(item -> {
+            capabilityStatus.setText("PopupMenu click: " + item.getTitle());
+            Log.i("DexVmTarget", "popup menu click: " + item.getTitle());
+            return true;
+        });
+        popup.setOnDismissListener(menu -> {
+            Log.i("DexVmTarget", "popup menu dismissed");
+        });
+        popup.show();
+        capabilityStatus.setText("PopupMenu shown");
+    }
+
+    /** lib PopupWindow -> 宿主叠加浮层卡片；外点关闭回灌 OnDismissListener。 */
+    private void showGuestPopupWindow(View anchor) {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setBackgroundColor(0xFFFFFFFF);
+        content.setPadding(32, 32, 32, 32);
+
+        TextView title = new TextView(this);
+        title.setText("PopupWindow 浮层");
+        title.setTextSize(16);
+        title.setTextColor(0xFF222222);
+        TextView body = new TextView(this);
+        body.setText("guest 内容树作为叠加窗口根，\n外点关闭回灌 OnDismissListener");
+        body.setTextSize(12);
+        body.setTextColor(0xFF666666);
+        content.addView(title);
+        content.addView(body);
+
+        PopupWindow window = new PopupWindow(content, 420, -2);
+        window.setOnDismissListener(() -> {
+            capabilityStatus.setText("PopupWindow dismissed");
+            Log.i("DexVmTarget", "popup window dismissed");
+        });
+        window.showAsDropDown(anchor, 0, 8);
+        capabilityStatus.setText("PopupWindow shown");
     }
 
     /**

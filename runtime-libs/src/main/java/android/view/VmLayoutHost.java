@@ -27,4 +27,35 @@ public final class VmLayoutHost {
     public static void dismissDialog(Object dialog) {
         throw new UnsupportedOperationException("VmLayoutHost: VM intrinsic");
     }
+
+    /**
+     * PopupMenu 弹层登记（实现：libdexvm.so intrinsic）。anchor 为锚点视图
+     * （guest mId 用于宿主解析真视图）；titles 为菜单项标题镜像。宿主用真
+     * android.widget.PopupMenu 出画，点击经 nativeDispatchPopupEvent 回灌
+     * {@code onHostMenuItemClick(index)}。
+     */
+    public static void showPopupMenu(Object popup, View anchor, String[] titles) {
+        throw new UnsupportedOperationException("VmLayoutHost: VM intrinsic");
+    }
+
+    /** PopupMenu 摘除（dismiss）。 */
+    public static void dismissPopupMenu(Object popup) {
+        throw new UnsupportedOperationException("VmLayoutHost: VM intrinsic");
+    }
+
+    /**
+     * PopupWindow 叠加窗口登记（实现：libdexvm.so intrinsic）。内容树成为
+     * 独立叠加根（无 dim），(x,y) 为 guest 逻辑坐标定位；宿主物化浮层卡片，
+     * 外点关闭经 nativeDispatchPopupEvent(token,1,0) 回灌
+     * {@code onHostDismissed()}。
+     */
+    public static void showPopupWindow(Object popup, View content, int x, int y, int width,
+                                       int height) {
+        throw new UnsupportedOperationException("VmLayoutHost: VM intrinsic");
+    }
+
+    /** PopupWindow 叠加窗口摘除。 */
+    public static void dismissPopupWindow(Object popup) {
+        throw new UnsupportedOperationException("VmLayoutHost: VM intrinsic");
+    }
 }

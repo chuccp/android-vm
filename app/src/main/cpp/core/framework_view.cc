@@ -38,6 +38,8 @@
 #include "core/interpreter.h"
 #include "core/framework_builtins_internal.h"
 #include "core/builtins_internal.h"
+#include "core/framework_dialog.h"
+#include "core/popup_bridge.h"
 
 // 点击回灌缝契约（bridge/ui_bridge_input.h）：viewId -> guest listener 注入。
 // 实现体在本 TU 尾部（dexvm::bridge 段）；登记表随 VM 会话存活。
@@ -1330,6 +1332,213 @@ void EnsureClickRootsRegistered() {
 
 }  // namespace
 
+// ---- 窗口类弹层（PopupMenu / PopupWindow）----
+//
+// guest lib PopupMenu.show() / PopupWindow.show*() 经 VmLayoutHost intrinsic
+// 落到这里：
+//   - PopupMenu：入宿主弹层队列（core/popup_bridge.cc），宿主 PopupMenuBridge
+//     用真 android.widget.PopupMenu 出画（原生动画/阴影/外点关闭），点击经
+//     nativeDispatchPopupEvent(token,0,index) 回灌；
+//   - PopupWindow：内容树登记为叠加窗口根（core/framework_dialog.cc kind=1，
+//     (x,y) 锚定、无 dim），快照带 kPropWindowPopupToken，宿主物化浮层卡片，
+//     外点关闭经 nativeDispatchPopupEvent(token,1,0) 回灌。
+// token -> guest 弹层对象映射在本 TU（宿主只回传 token，不触 guest 堆）。
+
+namespace {
+
+struct PopupRef {
+  uint32_t token = 0;
+  VObject* popup = nullptr;
+  VObject* anchor = nullptr;
+};
+
+std::vector<PopupRef>& PopupRegistry() {
+  static std::vector<PopupRef> registry;
+  return registry;
+}
+
+uint32_t g_next_popup_token = 1;
+
+void MarkPopupRoots(void* ctx, dexvm::gc::ExternalMarkFn mark, void* mark_ctx) {
+  (void)ctx;
+  for (auto& e : PopupRegistry()) {
+    if (e.popup != nullptr) mark(mark_ctx, e.popup);
+    if (e.anchor != nullptr) mark(mark_ctx, e.anchor);
+  }
+}
+
+void EnsurePopupRootsRegistered() {
+  static bool registered = false;
+  if (!registered) {
+    registered = true;
+    dexvm::gc::AddExternalRootVisitor(&MarkPopupRoots, nullptr);
+  }
+}
+
+uint32_t RegisterPopup(VObject* popup, VObject* anchor) {
+  if (popup == nullptr) return 0;
+  EnsurePopupRootsRegistered();
+  auto& reg = PopupRegistry();
+  for (auto& e : reg) {
+    if (e.popup == popup) {
+      e.anchor = anchor;
+      return e.token;
+    }
+  }
+  PopupRef ref;
+  ref.token = g_next_popup_token++;
+  if (ref.token == 0) ref.token = g_next_popup_token++;
+  ref.popup = popup;
+  ref.anchor = anchor;
+  reg.push_back(ref);
+  return ref.token;
+}
+
+uint32_t PopupTokenOf(VObject* popup) {
+  if (popup == nullptr) return 0;
+  for (auto& e : PopupRegistry()) {
+    if (e.popup == popup) return e.token;
+  }
+  return 0;
+}
+
+VObject* FindPopupByToken(uint32_t token) {
+  if (token == 0) return nullptr;
+  for (auto& e : PopupRegistry()) {
+    if (e.token == token) return e.popup;
+  }
+  return nullptr;
+}
+
+void UnregisterPopup(VObject* popup) {
+  auto& reg = PopupRegistry();
+  for (auto it = reg.begin(); it != reg.end(); ++it) {
+    if (it->popup == popup) {
+      reg.erase(it);
+      return;
+    }
+  }
+}
+
+std::string PopupUtf16ToUtf8(const uint16_t* chars, int32_t len) {
+  std::string out;
+  if (chars == nullptr || len <= 0) return out;
+  out.reserve(static_cast<size_t>(len));
+  for (int32_t i = 0; i < len; i++) {
+    uint32_t cp = chars[i];
+    if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < len && chars[i + 1] >= 0xDC00 &&
+        chars[i + 1] <= 0xDFFF) {
+      cp = 0x10000u + ((cp - 0xD800u) << 10) + (chars[i + 1] - 0xDC00u);
+      i++;
+    } else if (cp >= 0xD800 && cp <= 0xDFFF) {
+      cp = '?';
+    }
+    if (cp < 0x80) {
+      out.push_back(static_cast<char>(cp));
+    } else if (cp < 0x800) {
+      out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+      out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else if (cp < 0x10000) {
+      out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+      out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+      out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else {
+      out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+      out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+      out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+      out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+  }
+  return out;
+}
+
+// String[] -> '\n' 连接（宿主弹层桥的菜单标题线格式）。
+std::string PopupJoinTitles(VArray* array) {
+  std::string joined;
+  if (array == nullptr) return joined;
+  for (int32_t i = 0; i < array->length; i++) {
+    ObjHeader* sref = GetArrRef(array, i);
+    if (i > 0) joined.push_back('\n');
+    if (sref != nullptr && sref->klass != nullptr &&
+        sref->klass->descriptor == "Ljava/lang/String;") {
+      VString* s = reinterpret_cast<VString*>(sref);
+      joined += PopupUtf16ToUtf8(s->chars(), s->length);
+    }
+  }
+  return joined;
+}
+
+}  // namespace
+
+// VmLayoutHost.showPopupMenu(Object popup, View anchor, String[] titles)
+Value VmPopupShowMenu(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state;
+  (void)self;
+  *ok = true;
+  if (n < 3 || args[0].ref == nullptr) return Value{};
+  VObject* popup = reinterpret_cast<VObject*>(args[0].ref);
+  VObject* anchor = args[1].ref != nullptr ? reinterpret_cast<VObject*>(args[1].ref) : nullptr;
+  int32_t anchor_id = 0;
+  if (anchor != nullptr && anchor->klass != nullptr) {
+    VField* f = FindInstanceField(anchor->klass, "mId");
+    if (f != nullptr) anchor_id = GetIField(anchor, f->offset);
+  }
+  HostPopupRequest req;
+  req.kind = 0;
+  req.anchor_view_id = anchor_id;
+  req.token = RegisterPopup(popup, anchor);
+  if (args[2].ref != nullptr) {
+    req.titles = PopupJoinTitles(reinterpret_cast<VArray*>(args[2].ref));
+  }
+  PushHostPopupRequest(std::move(req));
+  return Value{};
+}
+
+// VmLayoutHost.dismissPopupMenu(Object popup)
+Value VmPopupDismissMenu(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state;
+  (void)self;
+  *ok = true;
+  if (n < 1 || args[0].ref == nullptr) return Value{};
+  VObject* popup = reinterpret_cast<VObject*>(args[0].ref);
+  uint32_t token = PopupTokenOf(popup);
+  if (token != 0) {
+    HostPopupRequest req;
+    req.kind = 1;
+    req.token = token;
+    PushHostPopupRequest(std::move(req));
+  }
+  UnregisterPopup(popup);
+  return Value{};
+}
+
+// VmLayoutHost.showPopupWindow(Object popup, View content, int x, int y,
+//                              int width, int height)
+Value VmPopupShowWindow(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)self;
+  *ok = true;
+  if (n < 6 || args[0].ref == nullptr || args[1].ref == nullptr) return Value{};
+  VObject* popup = reinterpret_cast<VObject*>(args[0].ref);
+  VObject* content = reinterpret_cast<VObject*>(args[1].ref);
+  uint32_t token = RegisterPopup(popup, nullptr);
+  ShowPopupWindow(state, popup, content, static_cast<int32_t>(args[2].i),
+                  static_cast<int32_t>(args[3].i), static_cast<int32_t>(args[4].i),
+                  static_cast<int32_t>(args[5].i), token);
+  return Value{};
+}
+
+// VmLayoutHost.dismissPopupWindow(Object popup)
+Value VmPopupDismissWindow(VMState& state, VObject* self, const Value* args, size_t n,
+                           bool* ok) {
+  (void)self;
+  *ok = true;
+  if (n < 1 || args[0].ref == nullptr) return Value{};
+  VObject* popup = reinterpret_cast<VObject*>(args[0].ref);
+  DismissPopupWindow(state, popup);
+  UnregisterPopup(popup);
+  return Value{};
+}
+
 // setOnClickListener(OnClickListener)：桥接缝存储（RegisterRenderPipeline 覆写
 // NoOp 登记到此；listener==null 为清除）。
 Value ViewSetOnClickListener(VMState& state, VObject* self, const Value* args, size_t n,
@@ -2569,6 +2778,33 @@ std::string InjectGuestObjectFields(VMState* vm_state, uint32_t object_id, int32
   }
   return "dispatched objectId=" + std::to_string(object_id) + " fields=" + std::to_string(a) +
          "," + std::to_string(b) + "," + std::to_string(c);
+}
+
+std::string InjectGuestObjectPopup(VMState* vm_state, uint32_t token, int32_t kind,
+                                   int32_t index) {
+  if (vm_state == nullptr) {
+    return "channel-ok token=" + std::to_string(token) + " guest-session=absent";
+  }
+  VObject* target = dexvm::runtime::FindPopupByToken(token);
+  if (target == nullptr) return "no-popup token=" + std::to_string(token);
+  if (kind == 0) {
+    Value arg{};
+    arg.i = index;
+    if (!CallVirtual(*vm_state, target, "onHostMenuItemClick", {"I"}, "V", &arg, 1, nullptr)) {
+      if (vm_state->HasPendingException()) vm_state->ClearException();
+      return "dispatch-error token=" + std::to_string(token) + " index=" +
+             std::to_string(index);
+    }
+    return "dispatched token=" + std::to_string(token) + " menu-index=" +
+           std::to_string(index);
+  }
+  // kind=1：宿主外点关闭 —— 通知 guest（OnDismissListener）并摘掉叠加窗口。
+  if (!CallVirtual(*vm_state, target, "onHostDismissed", {}, "V", nullptr, 0, nullptr)) {
+    if (vm_state->HasPendingException()) vm_state->ClearException();
+  }
+  dexvm::runtime::DismissPopupWindow(*vm_state, target);
+  dexvm::runtime::UnregisterPopup(target);
+  return "dispatched token=" + std::to_string(token) + " dismissed";
 }
 
 }  // namespace dexvm::bridge

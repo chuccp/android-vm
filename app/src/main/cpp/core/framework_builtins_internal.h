@@ -48,6 +48,14 @@ std::vector<VObject*> AddedContentViews(VObject* activity);
 VObject* AllocPlatformLayoutInflater(VMState& state, VObject* context);
 Value VmLayoutHostInflate(VMState& state, VObject* self, const Value* args, size_t n,
                           bool* ok);
+// 窗口类弹层（PopupMenu / PopupWindow）：lib android.widget.PopupMenu/
+// PopupWindow 的 show/dismiss 钩子（实现：core/framework_view.cc +
+// core/framework_dialog.cc + core/popup_bridge.cc）。
+Value VmPopupShowMenu(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmPopupDismissMenu(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmPopupShowWindow(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value VmPopupDismissWindow(VMState& state, VObject* self, const Value* args, size_t n,
+                           bool* ok);
 VObject* AllocResources(VMState& state, const std::string& apk_path, const std::string& package_name);
 Value AppGetProcessName(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value AppRegisterComponentCallbacks(VMState& state, VObject* self, const Value* args, size_t n,
