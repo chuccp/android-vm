@@ -541,6 +541,14 @@ Value ViewIsLayoutRequested(VMState& state, VObject* self, const Value* args, si
                            bool* ok);
 void ClearGuestLayoutRequested(VObject* v);
 Value ViewPerformClick(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
+Value ViewPerformLongClick(VMState& state, VObject* self, const Value* args, size_t n,
+                           bool* ok);
+Value ViewSetOnLongClickListener(VMState& state, VObject* self, const Value* args, size_t n,
+                                 bool* ok);
+Value TextViewAddTextWatcher(VMState& state, VObject* self, const Value* args, size_t n,
+                             bool* ok);
+Value TextViewRemoveTextWatcher(VMState& state, VObject* self, const Value* args, size_t n,
+                                bool* ok);
 Value ViewPost(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewRemoveCallbacks(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);
 Value ViewRequestLayout(VMState& state, VObject* self, const Value* args, size_t n, bool* ok);

@@ -7,6 +7,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
@@ -36,11 +38,13 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -99,6 +103,7 @@ public final class UiBridgeMaterializer {
     private static final int PROP_LAYOUT_KIND = 25;
     private static final int PROP_WINDOW_DIM = 26;
     private static final int PROP_CHECKED = 27;
+    private static final int PROP_HAS_LONG_CLICK = 28;
 
     private static final int TYPE_INT = 1;
     private static final int TYPE_FLOAT = 2;
@@ -171,6 +176,16 @@ public final class UiBridgeMaterializer {
     private final Map<View, Boolean> absoluteViews = new IdentityHashMap<>();
     private final Map<View, Integer> childGravity = new IdentityHashMap<>();
     private final Map<View, Float> childWeight = new IdentityHashMap<>();
+    // 交互回灌挂接面：TextWatcher / SeekBar listener / long-click 只装一次。
+    private final Set<View> textWatchersInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Set<View> seekListenersInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Set<View> longClickInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    // 快照回写文本时抑制 TextWatcher 回灌（避免 host->guest 回声）。
+    private final Set<View> suppressTextEvents =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
     private View root;
     // Dialog 叠加层：窗口根（parentId 无父）出现时，用一个 wrapper 托管
     // Activity 根 + scrim + 窗口内容根；Dialog 对象本身不出 guest。
@@ -810,7 +825,13 @@ public final class UiBridgeMaterializer {
         if (v instanceof TextView) {
             TextView tv = (TextView) v;
             Prop text = node.prop(PROP_TEXT);
-            if (text != null && text.s != null) tv.setText(text.s);
+            if (text != null && text.s != null) {
+                // 快照回写文本：抑制 TextWatcher，避免 host->guest 回声
+                // （用户键入仍正常回灌）。
+                suppressTextEvents.add(tv);
+                tv.setText(text.s);
+                suppressTextEvents.remove(tv);
+            }
             Prop ts = node.prop(PROP_TEXT_SIZE);
             if (ts != null && ts.f > 0) {
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, ts.f);
@@ -951,6 +972,10 @@ public final class UiBridgeMaterializer {
 
     private void wireClick(final View v, final Node node) {
         final int objectId = node.objectId;
+        // 交互回灌面（与 click 独立）：文本键入 / SeekBar 拖拽 / 长按。
+        wireEditTextBackflow(v, objectId);
+        wireSeekBackflow(v, objectId);
+        wireLongClick(v, node, objectId);
         Prop hasClick = node.prop(PROP_HAS_CLICK);
         if (hasClick == null || hasClick.asInt() == 0) {
             // AOSP 命中语义：没有 click listener 的 View 不消费触摸。此前对
@@ -974,6 +999,92 @@ public final class UiBridgeMaterializer {
                     status = "error: " + t;
                 }
                 Log.i(TAG, "host click objectId=" + objectId + " -> " + status);
+            }
+        });
+    }
+
+    /** EditText 键入回灌：宿主文本变化 -> guest setText（内建再通知 TextWatcher）。 */
+    private void wireEditTextBackflow(final View v, final int objectId) {
+        if (!(v instanceof EditText)) return;
+        if (!textWatchersInstalled.add(v)) return;
+        ((EditText) v).addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                if (suppressTextEvents.contains(v)) return;
+                String text = s != null ? s.toString() : "";
+                String status;
+                try {
+                    status = NativeBridge.nativeDispatchViewText(objectId, text);
+                } catch (Throwable t) {
+                    status = "error: " + t;
+                }
+                Log.i(TAG, "host text objectId=" + objectId + " -> " + status);
+            }
+        });
+    }
+
+    /** SeekBar 拖拽回灌：fromUser 进度/起止跟踪 -> guest OnSeekBarChangeListener。 */
+    private void wireSeekBackflow(final View v, final int objectId) {
+        if (!(v instanceof SeekBar)) return;
+        if (!seekListenersInstalled.add(v)) return;
+        ((SeekBar) v).setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                if (!fromUser) return;  // 快照回写（setProgress）不回灌
+                dispatchSeek(objectId, progress, 0);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {
+                dispatchSeek(objectId, bar.getProgress(), 1);
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {
+                dispatchSeek(objectId, bar.getProgress(), 2);
+            }
+        });
+    }
+
+    private void dispatchSeek(int objectId, int progress, int phase) {
+        String status;
+        try {
+            status = NativeBridge.nativeDispatchViewSeek(objectId, progress, phase);
+        } catch (Throwable t) {
+            status = "error: " + t;
+        }
+        Log.i(TAG, "host seek objectId=" + objectId + " phase=" + phase
+                + " value=" + progress + " -> " + status);
+    }
+
+    /** 长按回灌：仅在 guest 登记了 OnLongClickListener 时安装（避免吞手势）。 */
+    private void wireLongClick(final View v, final Node node, final int objectId) {
+        Prop hasLong = node.prop(PROP_HAS_LONG_CLICK);
+        boolean wanted = hasLong != null && hasLong.asInt() != 0;
+        if (!wanted) {
+            if (longClickInstalled.remove(v)) v.setOnLongClickListener(null);
+            return;
+        }
+        if (!longClickInstalled.add(v)) return;
+        v.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View vv) {
+                String status;
+                try {
+                    status = NativeBridge.nativeDispatchViewLongClick(objectId);
+                } catch (Throwable t) {
+                    status = "error: " + t;
+                }
+                Log.i(TAG, "host long-click objectId=" + objectId + " -> " + status);
+                return true;
             }
         });
     }

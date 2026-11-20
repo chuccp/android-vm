@@ -76,8 +76,10 @@ dex 规模 5 个 classes*.dex（三方占大头）。
   `Show VM dialog` 按钮经 lib `android.app.Dialog` + `Window` 弹出宿主叠加层（dim 遮罩 + 多根物化 +
   Dismiss 回灌）；`Show AlertDialog` 经 lib `android.app.AlertDialog.Builder`（标题/正文/三键）弹出
   叠加弹窗，按钮点击回灌 `DialogInterface.OnClickListener`；`Show Toast` 经 lib `android.widget.Toast`
-  → 宿主 `ToastBridge` 用真系统 Toast 呈现。footer 的 ScrollView 由宿主物化为真
-  `android.widget.ScrollView`（内容可滚动）
+  → 宿主 `ToastBridge` 用真系统 Toast 呈现。宿主交互回灌：EditText 键入 → guest `setText` +
+  `TextWatcher` 三回调；登记 `OnLongClickListener` 的视图（画廊标题）长按 → guest `performLongClick`；
+  SeekBar 拖拽 → guest `OnSeekBarChangeListener`（fromUser=true + 起止跟踪）。
+  footer 的 ScrollView 由宿主物化为真 `android.widget.ScrollView`（内容可滚动）
 - `res/layout-land/runtime_primary.xml`：横屏限定符变体；`values-zh`、`values-night`、`values/styles.xml`：区域/夜间/样式限定符
 - `res/raw/runtime_tone.wav` + `runtime_video.mp4`、`res/drawable/runtime_photo.jpg`：MediaPlayer/VideoView/资源解码
 - `assets/activity_runtime.xml`：AssetManager 流读取

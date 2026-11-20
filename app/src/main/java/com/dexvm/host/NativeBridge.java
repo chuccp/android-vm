@@ -122,6 +122,15 @@ public final class NativeBridge {
      */
     public static native String nativeDispatchViewObjectClick(int objectId);
 
+    /** 长按回灌：host 长按 -> objectId -> guest performLongClick/OnLongClickListener。 */
+    public static native String nativeDispatchViewLongClick(int objectId);
+
+    /** 文本输入回灌：host EditText 键入 -> objectId+文本 -> guest setText/TextWatcher。 */
+    public static native String nativeDispatchViewText(int objectId, String text);
+
+    /** SeekBar 拖拽回灌：phase 0=progress / 1=startTracking / 2=stopTracking。 */
+    public static native String nativeDispatchViewSeek(int objectId, int progress, int phase);
+
     /**
      * M3 加固考卷设备化：exam_smoke 同款引导 + LifecycleDriver 驱动 + 逐 phase/缺口
      * 诊断；System.loadLibrary 设备钩子接真 loader（APK 内 lib/&lt;abi&gt;/*.so 解压到

@@ -17,6 +17,7 @@
 #endif
 
 #include <atomic>
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
@@ -43,6 +44,11 @@
 #include "bridge/ui_bridge_input.h"
 
 namespace dexvm::runtime {
+
+// 文本观察者通知（实现见本 TU 的监听登记段）：setText 后派发
+// beforeTextChanged/onTextChanged/afterTextChanged（宿主输入回灌与 guest
+// 程序化 setText 同口径）。
+void NotifyGuestTextWatchers(VMState& state, VObject* view, ObjHeader* text);
 
 // 浮点字段槽读取（8 字节槽；跨 TU 共享面，见 framework_builtins_internal.h）
 float GetFField(VObject* o, uint32_t off) {
@@ -704,11 +710,16 @@ Value EditTextInit(VMState& state, VObject* self, const Value* args, size_t n, b
 }
 
 Value TVSetText(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
-  (void)state;
   *ok = true;
   if (n >= 1) {
     VField* f = FindInstanceField(self->klass, "mText");
+    ObjHeader* old = f != nullptr ? GetRefField(self, f->offset) : nullptr;
     if (f != nullptr) SetRefField(self, f->offset, args[0].ref);
+    // AOSP setText 走 sendOnTextChanged：同引用不重复通知（宿主回灌/程序化
+    // 设置都会到 TextWatcher）。
+    if (args[0].ref != old) {
+      NotifyGuestTextWatchers(state, self, args[0].ref);
+    }
   }
   return Value{};
 }
@@ -1256,6 +1267,10 @@ namespace {
 struct ClickEntry {
   VObject* view = nullptr;
   VObject* listener = nullptr;
+  // 长按监听器（setOnLongClickListener；快照 kPropHasLongClickListener）。
+  VObject* long_listener = nullptr;
+  // 文本观察者（addTextChangedListener；setText 后按 AOSP 三回调派发）。
+  std::vector<ObjHeader*> text_watchers;
   // 快照 handle.object_id（guest View 身份；mId==0 的视图只能靠它寻址）。
   uint32_t object_id = 0;
   // 最近一次快照 walk 的代号（派发前校验：只派发当前树内的活视图）。
@@ -1286,6 +1301,11 @@ VObject* FindClickListener(VObject* view) {
   return e != nullptr ? e->listener : nullptr;
 }
 
+VObject* FindLongClickListener(VObject* view) {
+  ClickEntry* e = FindClickEntry(view);
+  return e != nullptr ? e->long_listener : nullptr;
+}
+
 // GC 外部根：listener 在 AOSP 由 View.mListenerInfo 持有；本 VM 的桥接表
 // 是它唯一的强引用（C++ 堆上的 std::unordered_map 不在保守静态根扫描面内），
 // 不登记就会被 GC 回收——这正是 tab 点击 "dirty reference ... onClick" 的根因。
@@ -1293,6 +1313,10 @@ void MarkClickListenerRoots(void* ctx, dexvm::gc::ExternalMarkFn mark, void* mar
   (void)ctx;
   for (auto& kv : ClickRegistry()) {
     if (kv.second.listener != nullptr) mark(mark_ctx, kv.second.listener);
+    if (kv.second.long_listener != nullptr) mark(mark_ctx, kv.second.long_listener);
+    for (ObjHeader* watcher : kv.second.text_watchers) {
+      if (watcher != nullptr) mark(mark_ctx, watcher);
+    }
   }
 }
 
@@ -1356,6 +1380,119 @@ Value ViewRemoveCallbacks(VMState& state, VObject* self, const Value* args, size
   Value r{};
   r.i = 1;
   return r;
+}
+
+// setOnLongClickListener(OnLongClickListener)：桥接缝存储（listener==null 清除）。
+Value ViewSetOnLongClickListener(VMState& state, VObject* self, const Value* args, size_t n,
+                                 bool* ok) {
+  (void)state;
+  *ok = true;
+  VObject* listener = nullptr;
+  if (n >= 1 && args[0].ref != nullptr) listener = reinterpret_cast<VObject*>(args[0].ref);
+  EnsureClickRootsRegistered();
+  ClickEntry* e = FindClickEntry(self);
+  if (e != nullptr) {
+    e->long_listener = listener;
+  } else {
+    ClickEntry entry;
+    entry.view = self;
+    entry.long_listener = listener;
+    ClickRegistry().emplace(self, entry);
+  }
+  return Value{};
+}
+
+// performLongClick()：派发登记的 guest OnLongClickListener.onLongClick(View)；
+// 无监听器返回 false（AOSP View.performLongClick 常量语义）。
+Value ViewPerformLongClick(VMState& state, VObject* self, const Value* args, size_t n,
+                           bool* ok) {
+  (void)args;
+  (void)n;
+  *ok = true;
+  VObject* listener = FindLongClickListener(self);
+  Value r{};
+  if (listener == nullptr) return r;
+  Value av{};
+  av.ref = self;
+  if (!CallVirtual(state, listener, "onLongClick", {"Landroid/view/View;"}, "Z", &av, 1, &r)) {
+    *ok = false;
+    return Value{};
+  }
+  return r;
+}
+
+// addTextChangedListener(TextWatcher)：桥接缝存储（GC 外部根见 MarkClickListenerRoots）。
+Value TextViewAddTextWatcher(VMState& state, VObject* self, const Value* args, size_t n,
+                             bool* ok) {
+  (void)state;
+  *ok = true;
+  if (n < 1 || args[0].ref == nullptr) return Value{};
+  EnsureClickRootsRegistered();
+  ClickEntry* e = FindClickEntry(self);
+  if (e == nullptr) {
+    ClickEntry entry;
+    entry.view = self;
+    entry.text_watchers.push_back(args[0].ref);
+    ClickRegistry().emplace(self, entry);
+    return Value{};
+  }
+  auto& watchers = e->text_watchers;
+  if (std::find(watchers.begin(), watchers.end(), args[0].ref) == watchers.end()) {
+    watchers.push_back(args[0].ref);
+  }
+  return Value{};
+}
+
+Value TextViewRemoveTextWatcher(VMState& state, VObject* self, const Value* args, size_t n,
+                                bool* ok) {
+  (void)state;
+  *ok = true;
+  if (n < 1 || args[0].ref == nullptr) return Value{};
+  ClickEntry* e = FindClickEntry(self);
+  if (e == nullptr) return Value{};
+  auto& watchers = e->text_watchers;
+  watchers.erase(std::remove(watchers.begin(), watchers.end(), args[0].ref), watchers.end());
+  return Value{};
+}
+
+// setText 后的 TextWatcher 三回调（AOSP sendOnTextChanged 口径；start/before/
+// count 以整串替换近似）。回调异常按诊断面吞掉，不打断后续 setText 语义。
+void NotifyGuestTextWatchers(VMState& state, VObject* view, ObjHeader* text) {
+  ClickEntry* e = FindClickEntry(view);
+  if (e == nullptr || e->text_watchers.empty()) return;
+  std::vector<ObjHeader*> watchers = e->text_watchers;  // 回调中可能改表
+  int32_t len = 0;
+  if (text != nullptr && text->klass != nullptr &&
+      text->klass->descriptor == "Ljava/lang/String;") {
+    len = static_cast<VString*>(text)->length;
+  }
+  for (ObjHeader* w : watchers) {
+    if (w == nullptr) continue;
+    VObject* watcher = reinterpret_cast<VObject*>(w);
+    Value before[4] = {};
+    before[0].ref = text;
+    before[1].i = 0;
+    before[2].i = 0;
+    before[3].i = len;
+    CallVirtual(state, watcher, "beforeTextChanged",
+                {"Ljava/lang/CharSequence;", "I", "I", "I"}, "V", before, 4, nullptr);
+    if (state.HasPendingException()) state.ClearException();
+    Value changed[4] = {};
+    changed[0].ref = text;
+    changed[1].i = 0;
+    changed[2].i = 0;
+    changed[3].i = len;
+    CallVirtual(state, watcher, "onTextChanged",
+                {"Ljava/lang/CharSequence;", "I", "I", "I"}, "V", changed, 4, nullptr);
+    if (state.HasPendingException()) state.ClearException();
+    Value after[1] = {};
+    after[0].ref = text;
+    // Editable 面以 String 承载（VM 文本实现为 String；应用侧按 CharSequence
+    // 使用，实测 androidx/自定义 TextWatcher 均只读 toString）。
+    CallVirtual(state, watcher, "afterTextChanged", {"Landroid/text/Editable;"}, "V", after, 1,
+                nullptr);
+    if (state.HasPendingException()) state.ClearException();
+  }
 }
 
 Value ViewPost(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
@@ -2062,12 +2199,15 @@ using dexvm::runtime::ClickEntry;
 using dexvm::runtime::ClickRegistry;
 using dexvm::runtime::FindClickEntry;
 using dexvm::runtime::FindClickListener;
+using dexvm::runtime::FindLongClickListener;
 using dexvm::runtime::FindInstanceField;
 using dexvm::runtime::GetIField;
+using dexvm::runtime::ObjHeader;
 using dexvm::runtime::Value;
 using dexvm::runtime::VField;
 using dexvm::runtime::VMState;
 using dexvm::runtime::VObject;
+using dexvm::runtime::VString;
 
 void NoteGuestView(VObject* view, uint32_t object_id) {
   if (view == nullptr) return;
@@ -2234,6 +2374,122 @@ std::string InjectGuestObjectClick(VMState* vm_state, uint32_t object_id) {
     return "no-view objectId=" + std::to_string(object_id);
   }
   return DispatchGuestClick(vm_state, target, "objectId=" + std::to_string(object_id));
+}
+
+namespace {
+
+VObject* FindLiveViewByObjectId(uint32_t object_id) {
+  for (auto& kv : ClickRegistry()) {
+    const ClickEntry& e = kv.second;
+    if (IsLiveClickEntry(e) && e.object_id == object_id) return e.view;
+  }
+  return nullptr;
+}
+
+std::u16string Utf8ToUtf16Local(const std::string& s) {
+  std::u16string out;
+  out.reserve(s.size());
+  size_t i = 0;
+  while (i < s.size()) {
+    uint32_t cp = static_cast<unsigned char>(s[i]);
+    if (cp < 0x80) {
+      out.push_back(static_cast<char16_t>(cp));
+      i += 1;
+    } else if ((cp & 0xE0) == 0xC0 && i + 1 < s.size()) {
+      cp = ((cp & 0x1F) << 6) | (static_cast<unsigned char>(s[i + 1]) & 0x3F);
+      out.push_back(static_cast<char16_t>(cp));
+      i += 2;
+    } else if ((cp & 0xF0) == 0xE0 && i + 2 < s.size()) {
+      cp = ((cp & 0x0F) << 12) | ((static_cast<unsigned char>(s[i + 1]) & 0x3F) << 6) |
+           (static_cast<unsigned char>(s[i + 2]) & 0x3F);
+      out.push_back(static_cast<char16_t>(cp));
+      i += 3;
+    } else if ((cp & 0xF8) == 0xF0 && i + 3 < s.size()) {
+      cp = ((cp & 0x07) << 18) | ((static_cast<unsigned char>(s[i + 1]) & 0x3F) << 12) |
+           ((static_cast<unsigned char>(s[i + 2]) & 0x3F) << 6) |
+           (static_cast<unsigned char>(s[i + 3]) & 0x3F);
+      cp -= 0x10000;
+      out.push_back(static_cast<char16_t>(0xD800 + (cp >> 10)));
+      out.push_back(static_cast<char16_t>(0xDC00 + (cp & 0x3FF)));
+      i += 4;
+    } else {
+      i += 1;  // 非法字节跳过（宿主输入为合法 UTF-8）
+    }
+  }
+  return out;
+}
+
+}  // namespace
+
+std::string InjectGuestObjectLongClick(VMState* vm_state, uint32_t object_id) {
+  if (vm_state == nullptr) {
+    return "channel-ok objectId=" + std::to_string(object_id) + " guest-session=absent";
+  }
+  VObject* target = FindLiveViewByObjectId(object_id);
+  if (target == nullptr) return "no-view objectId=" + std::to_string(object_id);
+  Value r{};
+  if (!CallVirtual(*vm_state, target, "performLongClick", {}, "Z", nullptr, 0, &r)) {
+    if (vm_state->HasPendingException()) vm_state->ClearException();
+    return "dispatch-error objectId=" + std::to_string(object_id);
+  }
+  return "dispatched objectId=" + std::to_string(object_id) + " long=" + (r.i != 0 ? "1" : "0");
+}
+
+std::string InjectGuestObjectText(VMState* vm_state, uint32_t object_id,
+                                  const std::string& text) {
+  if (vm_state == nullptr) {
+    return "channel-ok objectId=" + std::to_string(object_id) + " guest-session=absent";
+  }
+  VObject* target = FindLiveViewByObjectId(object_id);
+  if (target == nullptr) return "no-view objectId=" + std::to_string(object_id);
+  VString* s = vm_state->linker->AllocString(Utf8ToUtf16Local(text));
+  if (s == nullptr) return "alloc-error objectId=" + std::to_string(object_id);
+  Value arg{};
+  arg.ref = reinterpret_cast<ObjHeader*>(s);
+  // setText 内建 intrinsic 会同步通知 TextWatcher（before/on/after 三回调）。
+  if (!CallVirtual(*vm_state, target, "setText", {"Ljava/lang/CharSequence;"}, "V", &arg, 1,
+                   nullptr)) {
+    if (vm_state->HasPendingException()) vm_state->ClearException();
+    return "dispatch-error objectId=" + std::to_string(object_id);
+  }
+  return "dispatched objectId=" + std::to_string(object_id) + " text-len=" +
+         std::to_string(text.size());
+}
+
+std::string InjectGuestObjectSeek(VMState* vm_state, uint32_t object_id, int32_t progress,
+                                  int32_t phase) {
+  if (vm_state == nullptr) {
+    return "channel-ok objectId=" + std::to_string(object_id) + " guest-session=absent";
+  }
+  VObject* target = FindLiveViewByObjectId(object_id);
+  if (target == nullptr) return "no-view objectId=" + std::to_string(object_id);
+  bool ok = false;
+  if (phase == 1) {
+    ok = CallVirtual(*vm_state, target, "onHostStartTrackingTouch", {}, "V", nullptr, 0, nullptr);
+  } else if (phase == 2) {
+    ok = CallVirtual(*vm_state, target, "onHostStopTrackingTouch", {}, "V", nullptr, 0, nullptr);
+  } else {
+    Value arg{};
+    arg.i = progress;
+    ok = CallVirtual(*vm_state, target, "onHostProgressChanged", {"I"}, "V", &arg, 1, nullptr);
+    if (!ok) {
+      if (vm_state->HasPendingException()) vm_state->ClearException();
+      // 非 SeekBar 目标（无 lib 回灌方法）退化为程序化 setProgress。
+      ok = CallVirtual(*vm_state, target, "setProgress", {"I"}, "V", &arg, 1, nullptr);
+    }
+  }
+  if (!ok) {
+    if (vm_state->HasPendingException()) vm_state->ClearException();
+    return "dispatch-error objectId=" + std::to_string(object_id) + " phase=" +
+           std::to_string(phase);
+  }
+  return "dispatched objectId=" + std::to_string(object_id) + " seek-phase=" +
+         std::to_string(phase) + " value=" + std::to_string(progress);
+}
+
+bool HasGuestLongClickListener(VObject* view) {
+  if (view == nullptr) return false;
+  return FindLongClickListener(view) != nullptr;
 }
 
 }  // namespace dexvm::bridge

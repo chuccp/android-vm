@@ -11,6 +11,8 @@ import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
@@ -208,6 +210,34 @@ public final class MainActivity extends Activity {
      * 窗口叠加（宿主 dim 遮罩 + 多根物化）。
      */
     private void wireExtendedWidgets() {
+        EditText input = (EditText) findViewById(R.id.runtime_input);
+        if (input != null) {
+            input.addTextChangedListener(new TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+                }
+
+                @Override
+                public void onTextChanged(CharSequence s, int start, int before, int count) {
+                }
+
+                @Override
+                public void afterTextChanged(Editable s) {
+                    Log.i("DexVmTarget", "input afterTextChanged: " + s);
+                    capabilityStatus.setText("Input: " + s);
+                }
+            });
+        }
+
+        TextView widgetHeader = (TextView) findViewById(R.id.runtime_widget_header);
+        if (widgetHeader != null) {
+            widgetHeader.setOnLongClickListener(view -> {
+                Log.i("DexVmTarget", "long click on widget header");
+                capabilityStatus.setText("Long click on widget header");
+                return true;
+            });
+        }
+
         ListView listView = (ListView) findViewById(R.id.runtime_listview);
         if (listView != null) {
             ArrayAdapter<String> listAdapter = new ArrayAdapter<String>(this, 0,
@@ -271,15 +301,21 @@ public final class MainActivity extends Activity {
             seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override
                 public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                    capabilityStatus.setText("SeekBar progress=" + progress);
+                    Log.i("DexVmTarget", "SeekBar progress=" + progress + " fromUser=" + fromUser);
+                    capabilityStatus.setText("SeekBar progress=" + progress
+                            + " fromUser=" + fromUser);
                 }
 
                 @Override
                 public void onStartTrackingTouch(SeekBar bar) {
+                    Log.i("DexVmTarget", "SeekBar drag start");
+                    capabilityStatus.setText("SeekBar drag start");
                 }
 
                 @Override
                 public void onStopTrackingTouch(SeekBar bar) {
+                    Log.i("DexVmTarget", "SeekBar drag stop=" + bar.getProgress());
+                    capabilityStatus.setText("SeekBar drag stop=" + bar.getProgress());
                 }
             });
         }

@@ -7,8 +7,8 @@ import android.util.AttributeSet;
  * 拖动条（AOSP android.widget.SeekBar 公开面；§31.7 C 档 lib）。
  *
  * 骨架面 = ProgressBar 进度状态 + max + OnSeekBarChangeListener；轨道/thumb
- * 绘制由宿主物化（Android 原生 SeekBar）承担。宿主拖拽回灌目前只保证
- * 点击通路（进度变更通知为程序化路径）。
+ * 绘制由宿主物化（Android 原生 SeekBar）承担。宿主拖拽经 UI 桥回灌到
+ * onHost* 方法：进度按 fromUser=true 通知，起止跟踪按 AOSP 语义通知。
  */
 public class SeekBar extends ProgressBar {
 
@@ -68,5 +68,39 @@ public class SeekBar extends ProgressBar {
 
     public void setOnSeekBarChangeListener(OnSeekBarChangeListener listener) {
         this.mOnSeekBarChangeListener = listener;
+    }
+
+    /**
+     * 宿主拖拽回灌（UI 桥 intrinsic 调用，非 AOSP 公开面）：按 AOSP
+     * onProgressChanged(fromUser=true) 语义通知 guest 监听器。
+     */
+    public void onHostProgressChanged(int progress) {
+        int clamped = progress;
+        if (clamped < 0) {
+            clamped = 0;
+        }
+        if (clamped > this.mMax) {
+            clamped = this.mMax;
+        }
+        if (clamped != getProgress()) {
+            super.setProgress(clamped);
+        }
+        if (this.mOnSeekBarChangeListener != null) {
+            this.mOnSeekBarChangeListener.onProgressChanged(this, clamped, true);
+        }
+    }
+
+    /** 宿主拖拽开始回灌（AOSP onStartTrackingTouch）。 */
+    public void onHostStartTrackingTouch() {
+        if (this.mOnSeekBarChangeListener != null) {
+            this.mOnSeekBarChangeListener.onStartTrackingTouch(this);
+        }
+    }
+
+    /** 宿主拖拽结束回灌（AOSP onStopTrackingTouch）。 */
+    public void onHostStopTrackingTouch() {
+        if (this.mOnSeekBarChangeListener != null) {
+            this.mOnSeekBarChangeListener.onStopTrackingTouch(this);
+        }
     }
 }

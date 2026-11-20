@@ -31,6 +31,27 @@ std::string InjectGuestClick(dexvm::runtime::VMState* vm_state, int32_t view_id)
 //   "dispatched objectId=N listener=1/0" / "no-view objectId=N" / channel-ok …
 std::string InjectGuestObjectClick(dexvm::runtime::VMState* vm_state, uint32_t object_id);
 
+// 长按回灌：objectId -> guest View.performLongClick()（派发登记的
+// OnLongClickListener.onLongClick(View)）。状态串：
+//   "dispatched objectId=N long=1/0" / "no-view objectId=N" / channel-ok …
+std::string InjectGuestObjectLongClick(dexvm::runtime::VMState* vm_state, uint32_t object_id);
+
+// 文本输入回灌：objectId -> guest setText(CharSequence) + TextWatcher 通知
+// （宿主 EditText 键入 -> guest 文本/监听器）。状态串：
+//   "dispatched objectId=N text-len=M" / "no-view objectId=N" / channel-ok …
+std::string InjectGuestObjectText(dexvm::runtime::VMState* vm_state, uint32_t object_id,
+                                  const std::string& text);
+
+// SeekBar 拖动回灌（phase：0 progress / 1 startTracking / 2 stopTracking）：
+// objectId -> guest SeekBar.onHostProgressChanged/onHostStartTrackingTouch/
+// onHostStopTrackingTouch（lib SeekBar 的 AOSP 监听器语义）。状态串：
+//   "dispatched objectId=N seek-phase=P value=V" / "no-view …" / channel-ok …
+std::string InjectGuestObjectSeek(dexvm::runtime::VMState* vm_state, uint32_t object_id,
+                                  int32_t progress, int32_t phase);
+
+// 该 guest View 是否登记了 long-click 监听器（快照 kPropHasLongClickListener 用）。
+bool HasGuestLongClickListener(dexvm::runtime::VObject* view);
+
 // 当前登记的 guest 监听器个数（会话内断言用）。
 size_t GuestClickListenerCount();
 

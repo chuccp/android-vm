@@ -2461,7 +2461,7 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
     AddIntrinsicMethod(view, "animate", {}, "Landroid/view/ViewPropertyAnimator;", pub,
                        ViewAnimate);
     AddIntrinsicMethod(view, "performClick", {}, "Z", pub, ViewPerformClick);
-    AddIntrinsicMethod(view, "performLongClick", {}, "Z", pub, ViewPerformClick);
+    AddIntrinsicMethod(view, "performLongClick", {}, "Z", pub, ViewPerformLongClick);
     AddIntrinsicMethod(view, "findViewById", {"I"}, "Landroid/view/View;", pub, ViewFindViewById);
     AddIntrinsicMethod(view, "combineMeasuredStates", {"I", "I"}, "I", stat,
                        ViewCombineMeasuredStates);
@@ -2623,7 +2623,8 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
       AddIntrinsicMethod(view, "setOnTouchListener", {"Landroid/view/View$OnTouchListener;"},
                          "V", pub, NoOp);
       AddIntrinsicMethod(view, "setOnLongClickListener",
-                         {"Landroid/view/View$OnLongClickListener;"}, "V", pub, NoOp);
+                         {"Landroid/view/View$OnLongClickListener;"}, "V", pub,
+                         ViewSetOnLongClickListener);
       AddIntrinsicMethod(view, "setOnFocusChangeListener",
                          {"Landroid/view/View$OnFocusChangeListener;"}, "V", pub, NoOp);
       AddIntrinsicMethod(view, "setOnKeyListener", {"Landroid/view/View$OnKeyListener;"}, "V",
@@ -2975,9 +2976,9 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                        TVGetFilters);
     AddIntrinsicMethod(text_view, "setFilters", {"[Landroid/text/InputFilter;"}, "V", pub, NoOp);
     AddIntrinsicMethod(text_view, "addTextChangedListener", {"Landroid/text/TextWatcher;"}, "V",
-                       pub, NoOp);
+                       pub, TextViewAddTextWatcher);
     AddIntrinsicMethod(text_view, "removeTextChangedListener",
-                       {"Landroid/text/TextWatcher;"}, "V", pub, NoOp);
+                       {"Landroid/text/TextWatcher;"}, "V", pub, TextViewRemoveTextWatcher);
     AddIntrinsicMethod(text_view, "setText", {"Ljava/lang/CharSequence;"}, "V", pub, TVSetText);
     AddIntrinsicMethod(text_view, "setText", {"Ljava/lang/String;"}, "V", pub, TVSetText);
     // AOSP TextView.setText(int resId)：资源串 -> mText（framework_app.cc）

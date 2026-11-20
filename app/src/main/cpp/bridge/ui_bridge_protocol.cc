@@ -949,6 +949,7 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
           add(kPropLayoutWeight, PropValue::Float(ViewF(lp, "weight")));
         }
         add(kPropHasClickListener, PropValue::Bool(HasGuestClickListener(view)));
+        add(kPropHasLongClickListener, PropValue::Bool(HasGuestLongClickListener(view)));
         add(kPropGravity, PropValue::Int(ViewI(view, "mGravity")));
         int32_t image_res = ViewI(view, "mImageResource");
         ObjHeader* drawable = ViewRef(view, "mDrawable");

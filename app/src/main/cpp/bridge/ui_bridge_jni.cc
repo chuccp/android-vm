@@ -78,6 +78,62 @@ Java_com_dexvm_host_NativeBridge_nativeDispatchViewObjectClick(JNIEnv* env, jcla
   return env->functions->NewStringUTF(env, status.c_str());
 }
 
+extern "C" bool DexVmSessionEnqueueLongClick(uint32_t object_id);
+extern "C" bool DexVmSessionEnqueueText(uint32_t object_id, const char* text, size_t len);
+extern "C" bool DexVmSessionEnqueueSeek(uint32_t object_id, int32_t progress, int32_t phase);
+
+// 长按回灌：host 长按 -> objectId -> guest performLongClick。
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchViewLongClick(JNIEnv* env, jclass,
+                                                             jint object_id) {
+  uint32_t id = static_cast<uint32_t>(object_id);
+  std::string status;
+  if (DexVmSessionEnqueueLongClick(id)) {
+    status = "queued objectId=" + std::to_string(id);
+  } else {
+    status = dexvm::bridge::InjectGuestObjectLongClick(nullptr, id);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
+// 文本输入回灌：host EditText 键入 -> objectId + UTF-8 文本 -> guest setText。
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchViewText(JNIEnv* env, jclass, jint object_id,
+                                                        jstring text) {
+  uint32_t id = static_cast<uint32_t>(object_id);
+  std::string value;
+  if (text != nullptr) {
+    const char* utf = env->functions->GetStringUTFChars(env, text, nullptr);
+    if (utf != nullptr) {
+      value.assign(utf);
+      env->functions->ReleaseStringUTFChars(env, text, utf);
+    }
+  }
+  std::string status;
+  if (DexVmSessionEnqueueText(id, value.data(), value.size())) {
+    status = "queued objectId=" + std::to_string(id) + " text-len=" +
+             std::to_string(value.size());
+  } else {
+    status = dexvm::bridge::InjectGuestObjectText(nullptr, id, value);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
+// SeekBar 拖拽回灌：host SeekBar -> objectId + progress/phase -> guest listener。
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchViewSeek(JNIEnv* env, jclass, jint object_id,
+                                                        jint progress, jint phase) {
+  uint32_t id = static_cast<uint32_t>(object_id);
+  std::string status;
+  if (DexVmSessionEnqueueSeek(id, progress, phase)) {
+    status = "queued objectId=" + std::to_string(id) + " seek-phase=" +
+             std::to_string(phase) + " value=" + std::to_string(progress);
+  } else {
+    status = dexvm::bridge::InjectGuestObjectSeek(nullptr, id, progress, phase);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
 #else  // !__ANDROID__（宿主测试构建不编本 TU 的 JNI 段）
 
 namespace dexvm::bridge {

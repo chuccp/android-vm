@@ -340,6 +340,12 @@ struct ApkSessionState {
   bool stop_requested = false;
   int32_t pending_click = -1;
   uint32_t pending_object_click = 0;  // 快照 handle.object_id（0 = 无待处理点击）
+  uint32_t pending_long_object = 0;   // 长按回灌目标（0 = 无）
+  uint32_t pending_text_object = 0;   // 文本输入回灌目标（0 = 无）
+  std::string pending_text;           // 宿主 EditText 键入的 UTF-8 文本
+  uint32_t pending_seek_object = 0;   // SeekBar 拖拽回灌目标（0 = 无）
+  int32_t pending_seek_progress = 0;
+  int32_t pending_seek_phase = 0;     // 0 progress / 1 start / 2 stop
   std::deque<std::vector<uint8_t>> frames;  // UIBridge envelope 有序队列（full+patch）
 };
 ApkSessionState g_session_state;
@@ -347,7 +353,9 @@ ApkSessionState g_session_state;
 bool SessionWakePred(void* arg) {
   auto* s = static_cast<ApkSessionState*>(arg);
   std::lock_guard<std::mutex> lk(s->mu);
-  return s->stop_requested || s->pending_click >= 0 || s->pending_object_click != 0;
+  return s->stop_requested || s->pending_click >= 0 || s->pending_object_click != 0 ||
+         s->pending_long_object != 0 || s->pending_text_object != 0 ||
+         s->pending_seek_object != 0;
 }
 
 // M4.1/M4.2 设备化入口：引导 VM 跑目标 APK 全生命周期链 + 首帧管线
@@ -2798,6 +2806,12 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
           g_session_state.stop_requested = false;
           g_session_state.pending_click = -1;
           g_session_state.pending_object_click = 0;
+          g_session_state.pending_long_object = 0;
+          g_session_state.pending_text_object = 0;
+          g_session_state.pending_text.clear();
+          g_session_state.pending_seek_object = 0;
+          g_session_state.pending_seek_progress = 0;
+          g_session_state.pending_seek_phase = 0;
           g_session_state.frames.clear();
           // 首帧全量 envelope 入队（宿主从 full 基线开始物化）
           g_session_state.frames.push_back(run->ui->last_view_tree());
@@ -2811,13 +2825,30 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
         while (true) {
           int32_t click = -1;
           uint32_t object_click = 0;
+          uint32_t long_object = 0;
+          uint32_t text_object = 0;
+          std::string text;
+          uint32_t seek_object = 0;
+          int32_t seek_progress = 0;
+          int32_t seek_phase = 0;
           bool stop = false;
           {
             std::lock_guard<std::mutex> lk(g_session_state.mu);
             click = g_session_state.pending_click;
             object_click = g_session_state.pending_object_click;
+            long_object = g_session_state.pending_long_object;
+            text_object = g_session_state.pending_text_object;
+            text.swap(g_session_state.pending_text);
+            seek_object = g_session_state.pending_seek_object;
+            seek_progress = g_session_state.pending_seek_progress;
+            seek_phase = g_session_state.pending_seek_phase;
             g_session_state.pending_click = -1;
             g_session_state.pending_object_click = 0;
+            g_session_state.pending_long_object = 0;
+            g_session_state.pending_text_object = 0;
+            g_session_state.pending_seek_object = 0;
+            g_session_state.pending_seek_progress = 0;
+            g_session_state.pending_seek_phase = 0;
             stop = g_session_state.stop_requested;
           }
           if (object_click != 0) {
@@ -2827,6 +2858,22 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
           } else if (click >= 0) {
             std::string click_status = dexvm::bridge::InjectGuestClick(&s, click);
             ProgressAppend("session click " + std::to_string(click) + ": " + click_status);
+          }
+          if (long_object != 0) {
+            std::string status = dexvm::bridge::InjectGuestObjectLongClick(&s, long_object);
+            ProgressAppend("session long-click objectId=" + std::to_string(long_object) + ": " +
+                           status);
+          }
+          if (text_object != 0) {
+            std::string status = dexvm::bridge::InjectGuestObjectText(&s, text_object, text);
+            ProgressAppend("session text objectId=" + std::to_string(text_object) + ": " +
+                           status);
+          }
+          if (seek_object != 0) {
+            std::string status = dexvm::bridge::InjectGuestObjectSeek(
+                &s, seek_object, seek_progress, seek_phase);
+            ProgressAppend("session seek objectId=" + std::to_string(seek_object) + ": " +
+                           status);
           }
           if (stop) break;
           // 设备验证探针（marker 文件）：走真实 Dialog.show/dismiss 全链路
@@ -5095,6 +5142,43 @@ extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueObject
   std::lock_guard<std::mutex> lk(g_session_state.mu);
   if (!g_session_state.active) return false;
   g_session_state.pending_object_click = object_id;
+  return true;
+}
+
+// 长按回灌入队（ui_bridge_jni.cc 调用）。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueLongClick(
+    uint32_t object_id) {
+  if (object_id == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_long_object = object_id;
+  return true;
+}
+
+// 文本输入回灌入队（宿主 EditText 键入 -> guest setText/TextWatcher）。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueText(
+    uint32_t object_id, const char* text, size_t len) {
+  if (object_id == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_text_object = object_id;
+  if (text != nullptr && len > 0) {
+    g_session_state.pending_text.assign(text, len);
+  } else {
+    g_session_state.pending_text.clear();
+  }
+  return true;
+}
+
+// SeekBar 拖拽回灌入队（phase：0 progress / 1 start / 2 stop）。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueSeek(
+    uint32_t object_id, int32_t progress, int32_t phase) {
+  if (object_id == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_seek_object = object_id;
+  g_session_state.pending_seek_progress = progress;
+  g_session_state.pending_seek_phase = phase;
   return true;
 }
 

@@ -83,6 +83,9 @@ enum PropKey : uint16_t {
                               //            仅额外根携带，宿主据此加 scrim）
   kPropChecked = 27,          // kBool    — CompoundButton/CheckedTextView.mChecked
                               //            （宿主 CheckBox/RadioButton/ToggleButton/Switch）
+  kPropHasLongClickListener = 28, // kBool — 桥接登记的 guest OnLongClickListener 存在
+                              //            （宿主据此装 long-click 回灌；缺省不装，
+                              //             避免吞掉 ScrollView/ListView 的长按手势）
 };
 
 struct PropValue {
