@@ -5,7 +5,7 @@
 [上一部分](08-binder.md) · [下一部分](10-framework-and-warmup.md)
 
 > 本手册为行为规格：实现为全自研 libdexvm.so（不编译 ART），执行语义以
-> Android/ART 原生行为为准，third_party/art 源码快照仅作对照。
+> Android/ART 原生行为为准，本地 ART 源码快照仅作对照。
 
 ## 18. Bridge
 
@@ -580,3 +580,90 @@ Parcel FD（17.2/17.6）
 - `DestroyMVContext` 顺序（01 章 5.3）：release media/audio/video/sensor
   sessions -> invalidate Binder handles -> 关闭 Guest roots，Bridge 据此
   保证先停回调再失效 handle，避免回调落在已失效 generation 上。
+
+### 18.8 P1 UI 物化桥（当前实现，as-built）
+
+> 18.1–18.7 是 UIBridge 的**行为规格**（SurfaceControl / BufferQueue /
+> InputChannel / PresentFrame 路径）。P1 阶段先落地了更低成本的
+> **宿主真 View 物化**路径：Guest 只产生 View 树与字段态快照，宿主把每个
+> 节点换成真 `android.view.View`（HWUI 出画），命中测试/交互回灌走桥接 API。
+> SurfaceControl/PresentFrame 规格路径尚未接线；两者语义目标一致（宿主真
+> 出画 + 首帧确认 + 输入回灌），实现入口不同。
+
+**传输协议**（`bridge/ui_bridge_protocol.{h,cc}`，小端二进制）：
+
+```text
+Envelope := magic "UIBR" u32 | u16 version | u8 kind | u8 reserved
+          | u32 revision | u32 snapshot_bytes | u32 draw_bytes
+          | snapshot 段 | draw 段
+kind: 1 = 全量快照（新基线），2 = 增量 patch（base_revision -> revision）
+
+ViewNode { handle{object_id, kind}, guest_view_id, class_name,
+           parent_id, child_index, props[], children[] }
+PropKey 1..38（PropValue 泛型：int/float/bool/string/rect/point/handle/bytes）
+```
+
+关键属性（完整清单见协议头文件）：
+
+| 组 | PropKey |
+| --- | --- |
+| 基础 | text、visibility、bounds、padding、textSize、textColor、backgroundColor、alpha、scroll、measured、layoutParams、translation、gravity |
+| 图片/播放 | imageResource、imageBytes、progress、videoPath/seek/playing |
+| 布局 | layoutGravity、orientation、margins、weight、layoutKind |
+| 控件状态 | checked、hasClickListener、hasLongClickListener、rating、numStars |
+| 容器/窗口 | drawerOpen、subtitle、navClick、menuItems、suggestions、date、time、windowDim、windowPopupToken |
+
+**宿主物化**（`app/src/main/java/com/dexvm/host/UiBridgeMaterializer.java`）：
+
+- 按类名后缀映射为真控件（guest 自定义子类也能命中）：TextView/ImageView/
+  Button/ImageButton/EditText/AutoCompleteTextView/CheckBox/RadioButton/
+  ToggleButton/Switch/CheckedTextView/SeekBar/RatingBar/ProgressBar/ListView/
+  GridView/Spinner/ScrollView/LinearLayout/FrameLayout/RelativeLayout/
+  Toolbar/DrawerLayout（真 androidx）/DatePicker/TimePicker/VideoView。
+- 布局所有权：有 guest 绝对几何的节点按 `kPropBounds` 绝对布局；无几何
+  节点由宿主按 `layoutKind/orientation/gravity/weight/margins` measure/layout。
+- 窗口类叠加（多根快照）：Dialog 内容根带 `kPropWindowDim`（dim 遮罩 +
+  多根托管 wrapper）；PopupWindow 内容根带 `kPropWindowPopupToken`
+  （elevation 浮层卡片 + 透明外点关闭层）。
+- 相等值跳过（textSize/padding/alpha/translation/background/layoutParams），
+  避免每帧无谓 requestLayout；`pendingHostEdits` 窗口防止在途旧快照覆盖
+  宿主刚键入的文本。
+
+**交互回灌**（`bridge/ui_bridge_input.{h}` 实现体在 `core/framework_view.cc`；
+JNI 出口 `bridge/ui_bridge_jni.cc`；常驻会话单槽在 `jni/runtime_contract.cpp`）：
+
+```text
+nativeDispatchViewClick(viewId) / nativeDispatchViewObjectClick(objectId)
+nativeDispatchViewLongClick(objectId)
+nativeDispatchViewText(objectId, text)
+nativeDispatchViewSeek(objectId, progress, phase)
+nativeDispatchViewRating(objectId, milliRating)
+nativeDispatchViewDrawer(objectId, open)
+nativeDispatchViewMenuClick(objectId, itemIndex)
+nativeDispatchViewFields(objectId, a, b, c)        // Date/TimePicker
+nativeDispatchPopupEvent(token, kind, index)      // PopupMenu click / 外点关闭
+```
+
+**宿主弹层桥**（`core/popup_bridge.{h,cc}` + `PopupMenuBridge.java`）：
+
+- Guest lib `PopupMenu.show()` -> `VmLayoutHost.showPopupMenu` intrinsic ->
+  队列（i32 kind | i32 anchorViewId | u32 token | str titles）-> 宿主
+  `nativePopupTake` -> 真 `android.widget.PopupMenu` 出画。
+- 菜单项点击 `(token,0,index)` -> guest `onHostMenuItemClick`；外点关闭
+  `(token,1,0)` -> guest `onHostDismissed`。token -> guest 弹层对象映射
+  在 VM 侧登记表（GC 外部根），宿主只回传 token。
+
+**其它宿主桥（当前实现）**：
+
+| 能力 | VM 侧 | 宿主侧 |
+| --- | --- | --- |
+| Toast | `android.widget.Toast` builtin + `core/toast_bridge.cc` | `ToastBridge.java`（真系统 Toast） |
+| 通知 | `android.app.VmNotifications` + `core/notification_bridge.cc` | `NotificationBridge.java` |
+| 传感器 | `android.hardware.VmSensors` + `core/sensor_bridge.cc` | `SensorBridge.java` |
+| TLS | `core/tls_bridge.cc` | `TlsBridge.java`（宿主 TLS 栈） |
+| 字体度量 | `core/framework_font.cc` 字体工作线程 | `FontBridge.java`（真 Paint/Typeface） |
+| 弹层菜单 | `core/popup_bridge.cc` | `PopupMenuBridge.java` |
+
+**回归口径**：MuMu 模拟器 + `uiautomator dump`（真控件树）+ logcat
+`DexVmUiBridge/DexVmDialog/DexVmPopup` 事件断言；验证记录见根 README §0、
+target-app README「冒烟验收记录」。

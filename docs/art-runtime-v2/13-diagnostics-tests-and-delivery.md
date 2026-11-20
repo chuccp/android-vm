@@ -69,7 +69,7 @@ JNI tests
 
 ```text
 runner：自研 gtest（NDK on-device / host）
-oracle：third_party/art 快照中对应测试的行为期望（只读对照，不编译）
+oracle：本地 ART 快照中对应测试的行为期望（只读对照，不编译）
 通过率：100%
 允许失败：仅限显式登记的 known-failure 清单（用例名、原因、issue），
 进入 M5 前清零
@@ -339,3 +339,32 @@ regression.jsonl
 - SurfaceControl/BufferQueue/VSync/HWUI/InputChannel 首帧链路可用。
 - launcher Activity 提交 Guest 首帧后进入 Interactive。
 - 启动诊断包含 phase、generation、ART state 和 Bridge result。
+
+## 26.1 当前实施状态（as-built，2026-11-20）
+
+本节记录截至 2026-11-20 的里程碑实际状态；上面 23–26 章仍是验收规格。
+
+| 里程碑 | 状态 | 说明 / 设备侧证据 |
+| --- | --- | --- |
+| M1 核心 VM | ✅ 通过 | DEX/ClassLinker/解释器/对象/GC/协程/JNI 最小面跑通 fixture；host/device 冒烟长期回归 |
+| M2 动态加载 API | ✅ 通过 | ClassLoader 全家/DexFile/JNI 全面/反射；加固 APK 动态加载走通 |
+| M3 语义保真 | 🟡 主链通过 | 加固 APK 壳解密/动态加载/Application/Activity 生命周期通过；业务页面按 UI 物化桥逐屏回归 |
+| M4 Framework 深度 | 🟡 已落地（规格子集） | 生命周期 + 首帧 traversal + ViewSnapshot/ViewPatch 物化出画；Surface/PresentFrame/InputChannel 规格路径未接线（以宿主真 View 物化替代，见 09 章 18.8 / 10 章 19.7） |
+| M5 稳定化/回归 | 🟡 进行中 | 设备冷启动/会话回归、target-app widget 画廊持续扩展；启动速度与清理项见根 README §10 |
+
+UI 桥批次设备验证记录（MuMu 模拟器，host `com.dexvm.host`，guest
+`com.coke.target`；断言 = uiautomator 真控件树 + logcat）：
+
+| 功能 | 验证结果 |
+| --- | --- |
+| androidx DrawerLayout 侧滑 | 边缘手势/导航按钮开合，`kPropDrawerOpen` 与 `nativeDispatchViewDrawer` 双向同步 |
+| Toolbar | 真 `android.widget.Toolbar` 标题/子标题/汉堡/溢出菜单；`nativeDispatchViewMenuClick` 回灌 guest |
+| AutoCompleteTextView | 宿主真下拉，建议项来自 `kPropSuggestions`；键入回灌 `TextWatcher` |
+| DatePicker/TimePicker | 宿主真选择器，年月日/时分经 `nativeDispatchViewFields` 双向同步 |
+| Dialog / AlertDialog | 叠加根 + dim 遮罩；按钮点击回灌 `DialogInterface.OnClickListener` |
+| Toast | 宿主真系统 Toast |
+| PopupMenu | 宿主真弹层菜单；点击 `(token,0,index)` 回灌 `OnMenuItemClickListener`，外点 `(token,1,0)` 回灌 `OnDismissListener` |
+| PopupWindow | 浮层卡片（elevation）+ 透明外点关闭层；外点关闭摘除叠加根并回灌 `OnDismissListener` |
+
+新增诊断 tag：`DexVmDialog`（窗口叠加）、`DexVmPopup`（弹层桥）、
+`DexVmToast`、`DexVmNotify`、`DexVmSensors`、`DexVmTlsBridge`。

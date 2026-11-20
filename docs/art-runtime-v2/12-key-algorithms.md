@@ -5,7 +5,7 @@
 [上一部分](11-startup-pipeline.md) · [下一部分](13-diagnostics-tests-and-delivery.md)
 
 > 本手册为行为规格：实现为全自研 libdexvm.so（不编译 ART），执行语义以
-> Android/ART 原生行为为准，third_party/art 源码快照仅作对照。
+> Android/ART 原生行为为准，本地 ART 源码快照仅作对照。
 
 ## 22. 关键算法
 
@@ -148,6 +148,11 @@ UI Bridge PresentFrame
 wait Host Surface present
 mark Interactive
 ```
+
+> 当前实现（as-built）：traversal 后导出 ViewSnapshot（节点/字段态 +
+> DrawCommand），宿主 `UiBridgeMaterializer` 物化真 `android.view.View` 树
+> 出画，envelope present 即首帧确认；Surface PresentFrame 规格路径未接线，
+> 见 09 章 18.8 / 10 章 19.7。
 
 ### 22.9 JNI Object
 

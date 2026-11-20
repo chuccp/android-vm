@@ -5,7 +5,7 @@
 [上一部分](02-memory-gc.md) · [下一部分](04-coroutine-runtime.md)
 
 > 本手册为行为规格：实现为全自研 libdexvm.so（不编译 ART），执行语义以
-> Android/ART 原生行为为准，third_party/art 源码快照仅作对照。
+> Android/ART 原生行为为准，本地 ART 源码快照仅作对照。
 
 ## 7. Runtime 初始化与启动
 
@@ -217,8 +217,9 @@ split classpath 创建。
 ## 9. runtime-libs
 
 runtime-libs 为 v1 遗产：可复用为 Guest boot classpath（vendored OpenJDK
-源码、组件清单与 runtime.dex 构建流水线沿用），不作为实现约束。其
-jre-excluded 黑名单中的类由 VM 内建实现，不由 runtime.dex 打包。
+源码、组件清单与 runtime.dex 构建流水线沿用），不作为实现约束。打包排除集
+由内建类清单**自动派生**（`core/builtin_classes.def` 为唯一权威；旧
+allowlist / excluded 表单已废除），内建类不入 runtime.dex（详见 14 章 §31.4）。
 
 ### 9.1 源码
 
@@ -230,10 +231,10 @@ runtime-libs/   (仓库内相对路径)
 
 ```text
 src/main/java
-runtime-components.json
-jre-excluded.txt
+runtime-components.json        （纯元数据：组件/版本/外部依赖记录）
 legal/openjdk11
 Android API 适配源码
+app/src/main/cpp/core/builtin_classes.def   （打包排除集来源；单一事实源）
 ```
 
 ### 9.2 输出

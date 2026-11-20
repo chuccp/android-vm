@@ -5,7 +5,7 @@
 [下一部分](02-memory-gc.md)
 
 > 本手册为行为规格：实现为全自研 libdexvm.so（不编译 ART），执行语义以
-> Android/ART 原生行为为准，third_party/art 源码快照仅作对照。
+> Android/ART 原生行为为准，本地 ART 源码快照仅作对照。
 
 ## 1. 交付目标
 
@@ -51,10 +51,10 @@ commit b753cf97923c3695338d21466fa14c57b480a59a
 branch 26Q2-release
 ```
 
-快照位置（只读，不参与构建）：
+快照位置（只读，不参与构建；本地 checkout，不入库）：
 
 ```text
-reference/art/
+reference/art/      （路径因环境而异；仓库内不含快照）
 ```
 
 对照方式：实现某行为前查快照对应实现（类名、状态机、调用顺序、边界语义），
@@ -82,21 +82,23 @@ app/
   src/main/cpp/               C++ 自研运行时（cpp 即 runtime）
     CMakeLists.txt
     dex/                      DEX 解析
-    core/                     对象模型、ClassLinker、Interpreter、异常
+    core/                     对象模型、ClassLinker、Interpreter、异常、framework 语义面
     memory/                   Guest Heap、GC、handles
     coroutine/                GuestTask/Carrier/调度器
     jni/                      JNI、Native Manager、SharedLibrary、contract
     session/                  APK Session、ClassLoader、resources
     binder/                   Guest Binder
-    framework/                ActivityThread/Application/Activity
-    bridge/                   Host/UI/Device Bridge
+    framework/                ActivityThread/Application/Activity/首帧管线
+    bridge/                   Host/UI Bridge（ViewSnapshot/ViewPatch + UI JNI）
     tests/                    host/device 测试与 fixture
-  src/main/java/              Android 宿主壳（MainActivity、NativeBridge、worker）
+  src/main/java/              Android 宿主壳（MainActivity、NativeBridge、
+                              UiBridgeMaterializer、Toast/通知/弹层/传感器/TLS/字体桥）
 
-runtime-libs/                 guest boot classpath（v1 遗产）
-reference/art/                ART 行为对照快照（只读，不参与构建）
+runtime-libs/                 guest boot classpath（1805 个 Java 源文件 -> runtime.dex）
+target-app/                   设备侧语义考卷 + UI 兼容考卷 app（com.coke.target）
 docs/                         本手册
-tools/                        fixture/测试/同步脚本
+tools/                        fixture/测试入口脚本
+reference/art/                ART 行为对照快照（本地 checkout，只读，不入库）
 ```
 
 include 风格：以 `app/src/main/cpp/` 为根（如

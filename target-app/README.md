@@ -81,23 +81,36 @@ dex 规模 5 个 classes*.dex（三方占大头）。
   同一节点换真 androidx DrawerLayout——边缘滑动手势/滑动动画/遮罩/阴影是原生行为，开合经快照
   `kPropDrawerOpen` 与 `nativeDispatchViewDrawer` 双向同步。`runtime_footer.xml`（被 Layouts section
   `<include>` 的编译布局小卡）；`runtime_compiled.xml`（最小编译二进制 XML 探针）
-- `runtime_footer.xml` 的 **Extended widget gallery**：CheckBox / RadioGroup+RadioButton / ToggleButton /
-  SeekBar / ImageButton（XML 膨胀 + 点击 performClick 回灌 + checked/progress 状态桥接）；ListView
-  （`ArrayAdapter` item 行物化 + 测量/堆叠）与 Spinner（点击循环选中项 + OnItemSelectedListener）；
-  `Fetch Baidu HTML (OkHttp)` 按钮经 OkHttp 4.12（lib `javax.net.ssl` → 宿主 `TlsBridge` 真 TLS）
-  请求 https://www.baidu.com/，把响应源码（HTTP 状态 + 截断后的 HTML）写进下方输出文本框；
-  `Show VM dialog` 按钮经 lib `android.app.Dialog` + `Window` 弹出宿主叠加层（dim 遮罩 + 多根物化 +
-  Dismiss 回灌）；`Show AlertDialog` 经 lib `android.app.AlertDialog.Builder`（标题/正文/三键）弹出
-  叠加弹窗，按钮点击回灌 `DialogInterface.OnClickListener`；`Show Toast` 经 lib `android.widget.Toast`
-  → 宿主 `ToastBridge` 用真系统 Toast 呈现；`Show PopupMenu` 经 lib `android.widget.PopupMenu` → 宿主
-  真 `android.widget.PopupMenu`（原生弹层动画/阴影/外点关闭），菜单项点击经
-  `nativeDispatchPopupEvent(token,0,index)` 回灌 `OnMenuItemClickListener`，外点关闭回灌
-  `OnDismissListener`；`Show PopupWindow` 经 lib `android.widget.PopupWindow`，内容树登记为独立叠加
-  窗口根（无 dim、按锚点坐标定位，宿主物化浮层卡片 + elevation），外点关闭经
-  `nativeDispatchPopupEvent(token,1,0)` 回灌 `OnDismissListener`。宿主交互回灌：EditText 键入 → guest `setText` +
-  `TextWatcher` 三回调；登记 `OnLongClickListener` 的视图（画廊标题）长按 → guest `performLongClick`；
-  SeekBar 拖拽 → guest `OnSeekBarChangeListener`（fromUser=true + 起止跟踪）。
-  footer 的 ScrollView 由宿主物化为真 `android.widget.ScrollView`（内容可滚动）
+- `runtime_primary.xml` 各 section 的 **widget 画廊**（抽屉菜单切换；节选）：
+  - **Basics**：EditText 键入回灌、AutoCompleteTextView（guest 建议项镜像 → 宿主真下拉）、
+    Switch / ProgressBar 状态物化；
+  - **Selection**：CheckBox / RadioGroup+RadioButton / ToggleButton / CheckedTextView /
+    SeekBar / RatingBar（XML 膨胀 + performClick 回灌 + checked/progress/rating 状态桥接），
+    以及 DatePicker / TimePicker（宿主真 Material 选择器，年月日/时分双向同步）；
+  - **Lists & grids**：ListView（`ArrayAdapter` item 行物化 + 测量/堆叠）、Spinner
+    （点击循环选中项 + OnItemSelectedListener）、GridView；
+  - **Layouts**：RelativeLayout / TableLayout + `<include layout="@layout/runtime_footer"/>`
+    编译布局小卡（`runtime_compiled.xml` 为最小编译二进制 XML 探针）；
+  - **Dialogs & feedback**：`Show VM dialog` 经 lib `android.app.Dialog` + `Window` 弹出
+    宿主叠加层（dim 遮罩 + 多根物化 + Dismiss 回灌）；`Show AlertDialog` 经 lib
+    `android.app.AlertDialog.Builder`（标题/正文/三键），按钮点击回灌
+    `DialogInterface.OnClickListener`；`Show Toast` 经 lib `android.widget.Toast` → 宿主
+    `ToastBridge` 用真系统 Toast 呈现；`Show PopupMenu` 经 lib `android.widget.PopupMenu`
+    → 宿主真 `android.widget.PopupMenu`（原生弹层动画/阴影/外点关闭），菜单项点击经
+    `nativeDispatchPopupEvent(token,0,index)` 回灌 `OnMenuItemClickListener`，外点关闭回灌
+    `OnDismissListener`；`Show PopupWindow` 经 lib `android.widget.PopupWindow`，内容树登记为
+    独立叠加窗口根（无 dim、按锚点坐标定位，宿主物化浮层卡片 + elevation），外点关闭经
+    `nativeDispatchPopupEvent(token,1,0)` 回灌 `OnDismissListener`；
+  - **Network**：`Fetch Baidu HTML (OkHttp)` 按钮经 OkHttp 4.12（lib `javax.net.ssl` →
+    宿主 `TlsBridge` 真 TLS）请求 https://www.baidu.com/，把响应源码（HTTP 状态 + 截断后的
+    HTML）写进下方输出文本框；
+  - **Media / Runtime status**：ImageButton / ImageView / VideoView（MP4 与 HLS）+
+    线程 / IO / 能力状态。
+- 宿主交互回灌：EditText 键入 → guest `setText` + `TextWatcher` 三回调；登记
+  `OnLongClickListener` 的视图（画廊标题）长按 → guest `performLongClick`；SeekBar 拖拽 →
+  guest `OnSeekBarChangeListener`（fromUser=true + 起止跟踪）；DatePicker/TimePicker 字段 →
+  `nativeDispatchViewFields`；弹层点击/外点 → `nativeDispatchPopupEvent`。
+  section 的 ScrollView 由宿主物化为真 `android.widget.ScrollView`（内容可滚动）
 - `res/layout-land/runtime_primary.xml`：横屏限定符变体；`values-zh`、`values-night`、`values/styles.xml`：区域/夜间/样式限定符
 - `res/raw/runtime_tone.wav` + `runtime_video.mp4`、`res/drawable/runtime_photo.jpg`：MediaPlayer/VideoView/资源解码
 - `assets/activity_runtime.xml`：AssetManager 流读取
@@ -165,3 +178,10 @@ gradle :target-app:assembleDebug            # 或 ./gradlew :target-app:assemble
 - 2026-11-17（归位后，`gradle -p <repo> :target-app:assembleDebug`）：构建产物与 `/tmp` 壳产物
   冒烟等价——同为 8,693,706 字节、5 dex、4 so（逐条目仅 classes3.dex 未压缩差 +4 字节）；设备侧
   重装冒烟（启动 / fixture 类加载 / 加固 .so dlopen）通过。
+- 2026-11-20（MuMu 模拟器 127.0.0.1:16384，宿主 `com.dexvm.host`，Gallery 画廊会话）：
+  widget 画廊全量物化验证——DrawerLayout 边缘手势/导航按钮开合双向同步、真 Toolbar
+  标题/子标题/汉堡/溢出菜单、AutoCompleteTextView 宿主下拉、EditText 键入回灌、
+  SeekBar 拖动回灌、DatePicker/TimePicker 字段回灌、Dialog/AlertDialog 叠加弹窗、
+  Toast 宿主真提示、PopupMenu（Copy/Share/Delete 点击回灌 + 外点关闭）、PopupWindow
+  （elevation 浮层卡片 + 外点关闭回灌）；断言 = `uiautomator dump` 真控件树 +
+  logcat `DexVmUiBridge/DexVmDialog/DexVmPopup` 事件。

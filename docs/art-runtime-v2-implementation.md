@@ -56,12 +56,26 @@ Guest 并发调度采用原生协程（GuestTask/Carrier）替代线程（第 14
 2. [诊断、测试与实施验收](art-runtime-v2/13-diagnostics-tests-and-delivery.md)
 3. [实施 API 考纲](art-runtime-v2/14-implementation-api-checklist.md)
 
+## 当前实现快照（as-built，2026-11-20）
+
+本手册正文是行为规格。截至 2026-11-20，已落地的关键实现：
+
+- 核心 VM / 加固 APK 启动主链 / 生命周期 / 首帧提交链路可用（证据见根
+  `README.md` §0）；
+- UI Bridge 当前实现为 **ViewSnapshot/ViewPatch + 宿主真控件物化**
+  （规格 18.3 的 P1 落地形态，见 [09 章 18.8](art-runtime-v2/09-bridge.md)
+  与 [10 章 19.7](art-runtime-v2/10-framework-and-warmup.md)）；
+- widget 兼容批次（Toolbar / DrawerLayout / AutoCompleteTextView /
+  DatePicker / TimePicker / PopupMenu / PopupWindow / 交互回灌）清单见
+  [14 章 §32](art-runtime-v2/14-implementation-api-checklist.md)；
+- 里程碑与设备验证记录见
+  [13 章 26.1](art-runtime-v2/13-diagnostics-tests-and-delivery.md)。
+
 ## 权威基线
 
 - 语义以 Android/ART 原生行为为准。ART 源码快照为对照参考：commit
   `b753cf97923c3695338d21466fa14c57b480a59a`，branch `26Q2-release`
-  （本地 checkout 路径因环境而异；快照位于
-  `reference/art/`，只读对照，不参与构建）。
+  （本地 checkout，路径因环境而异；仓库内不含快照）。
 - 实现为全自研：Guest 对象和类状态由自研 VM Core 管理，`libdexvm.so`
   持有生命周期；语义分歧以 Android 原生为准修正。
 - runtime-libs 是 Guest boot classpath 的组成部分（v1 遗产，可复用为

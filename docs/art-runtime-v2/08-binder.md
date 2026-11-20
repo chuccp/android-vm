@@ -5,7 +5,7 @@
 [上一部分](07-native-libraries.md) · [下一部分](09-bridge.md)
 
 > 本手册为行为规格：实现为全自研 libdexvm.so（不编译 ART），执行语义以
-> Android/ART 原生行为为准，third_party/art 源码快照仅作对照。
+> Android/ART 原生行为为准，本地 ART 源码快照仅作对照。
 
 ## 17. Binder
 

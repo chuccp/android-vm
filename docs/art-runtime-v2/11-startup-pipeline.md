@@ -5,7 +5,7 @@
 [上一部分](10-framework-and-warmup.md) · [下一部分](12-key-algorithms.md)
 
 > 本手册为行为规格：实现为全自研 libdexvm.so（不编译 ART），执行语义以
-> Android/ART 原生行为为准，third_party/art 源码快照仅作对照。
+> Android/ART 原生行为为准，本地 ART 源码快照仅作对照。
 
 ## 21. 启动主线
 
@@ -163,6 +163,11 @@ Host Surface present confirmation
 remove loading overlay
 enable input
 ```
+
+> 当前实现（as-built，2026-11-20）：S7 走 **View 树快照 + 宿主真控件物化**
+> 路径——traversal 后 `BuildSnapshotFromGuest` -> envelope -> 宿主
+> `UiBridgeMaterializer` 物化出画，首帧以 envelope present 确认；Surface
+> PresentFrame 规格路径未接线。语义目标不变（见 09 章 18.8）。
 
 失败处置：
 

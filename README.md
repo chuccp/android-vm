@@ -1,28 +1,41 @@
 # android-vm — ART Runtime v2 开发总结
 
 在 Android 应用内嵌一个**全自研 DEX 运行时** `libdexvm.so`，直接加载并运行第三方加固 APK。
-当前考卷：某大型三方加固 APK（arm64-v8a，18 个 dex）。
+当前考卷：某大型三方加固 APK（arm64-v8a，18 个 dex）；UI 兼容考卷：`target-app`（`com.coke.target`）。
 首期里程碑：**加固壳解密 → 动态加载 → Application/Activity 生命周期 → Activity 首帧出画**。
+当前阶段：**P1 UI 物化桥 + 原生 widget 兼容**（宿主真控件出画 + 双向交互回灌）。
 
-更新时间：2026-11-19（分支 `feat/dexvm-m4-first-frame`）
+更新时间：2026-11-20（分支 `main`）
 
 ---
 
 ## 0. 当前进度
 
+### 0.1 核心 VM 与加固 APK 主链（2026-11-19 起已验证）
+
 | 阶段 | 状态 | 设备侧证据 |
 | --- | --- | --- |
 | 加固壳解密 / 动态加载 | ✅ 通过 | `phase activity.launch[<launcher Activity>] ok`（16–21 s） |
 | Application / Provider / Activity 生命周期 | ✅ 通过 | 35 个 ContentProvider 后 `activity.onPostResume ok` |
-| 首帧 measure → layout → submit → present | 🟡 降级通过 | `traversal degraded: present without full measure/layout`、`phase firstFrame.present ok`、`present root=Landroidx/appcompat/widget/FitWindowsFrameLayout; nodes=236` |
-| 宿主物化真实 View 出画 | 🔴 内容尚不可见 | measure 提前失败 → 节点 bounds 全 0，宿主物化后 `presented=0` |
-| 基础框架 UI（断网也有界面） | 🔴 未达成 | 当前第一优先级 |
-| 会话 keep-alive / 增量 present / 点击回灌 | 🟡 通路已建 | session pump、ViewPatch diff、viewId→guest listener 注入 |
+| 首帧 measure → layout → submit → present | 🟡 链路可用（target-app 全量通过） | `phase firstFrame.present ok`、`present root=…; nodes=236`；个别组件 measure 失败时按现树降级 present |
+| 宿主物化真实 View 出画 | ✅ 通过（target-app 全量验证） | 真 `android.view.View` 树 HWUI 出画；`DexVmUiBridge: full nodes=N`，设备验证截图在本地 `build/shots/`（不入库） |
+| 基础框架 UI（断网也有界面） | ✅ target-app 达成 | 「DexVM Gallery」全量 widget 画廊（侧滑菜单/Toolbar/列表/选择器/弹层） |
+| 会话 keep-alive / 增量 present / 交互回灌 | ✅ 闭环 | session pump + ViewPatch diff；点击/文本/长按/SeekBar/Rating/抽屉/菜单/日期时间/弹层回灌 |
 
-**结论**：启动主链与首帧提交链已经打通，但首帧只是"降级 present"——个别组件的
-measure 失败（RecyclerView / FragmentStateAdapter / PAG clinit 等）会让整棵树的
-几何为空，宿主侧因此画不出内容。下一步按既定方向把 **measure/layout 所有权交给宿主**
-（视图层已经桥接），以"无网络也有基础框架界面"为验收。
+### 0.2 UI 兼容批次（2026-11-20，target-app 验证）
+
+| 批次 | 内容 | 验证 |
+| --- | --- | --- |
+| 基础画廊 | ListView/GridView/Spinner/Dialog/OkHttp 输出卡 | MuMu 截图 + logcat |
+| 交互回灌 | EditText 输入/长按/SeekBar 拖动 → guest listener | `input afterTextChanged`、`seek-phase` 日志 |
+| 原生容器 | androidx `DrawerLayout` 侧滑（手势/按钮双向同步）、第二批 widget | 开合状态 `kPropDrawerOpen` 回灌 |
+| 原生控件 | 真 `Toolbar`（标题/子标题/汉堡/溢出菜单）、AutoCompleteTextView、DatePicker/TimePicker | 菜单点击 `nativeDispatchViewMenuClick`、日期时间字段回灌 |
+| 窗口类弹层 | Dialog/AlertDialog（dim 叠加根）、Toast 宿主桥、PopupMenu（宿主真弹层菜单）、PopupWindow（elevation 浮层 + 外点关闭） | 点击/外点回灌 `nativeDispatchPopupEvent` |
+
+**结论**：核心 VM 主链与 P1 UI 物化桥均已落地。宿主 `UiBridgeMaterializer` 把
+guest View 快照物化为真原生控件（HWUI 出画），交互经 `nativeDispatch*` 回灌 guest
+listener；加固 APK 的业务页面按同一桥轨逐屏回归。下一步是业务页面回归、宿主
+insets/无障碍/输入法接线、Surface/GL 与动画资源管线（见 §10）。
 
 ---
 
@@ -68,16 +81,16 @@ measure 失败（RecyclerView / FragmentStateAdapter / PAG clinit 等）会让�
 | `app/src/main/cpp/binder/` | Guest Binder domain |
 | `app/src/main/cpp/framework/` | 生命周期驱动、首帧渲染管线（measure/layout/draw/present） |
 | `app/src/main/cpp/bridge/` | UI 桥协议（ViewSnapshot/ViewPatch + DrawOps）、UI JNI |
-| `app/src/main/java/com/dexvm/host/` | 宿主入口、`UiBridgeMaterializer`、通知/传感器/TLS 桥 |
-| `runtime-libs/` | Guest boot classpath Java 源码（1761 个文件，其中 228 个 `android.*`），编译为 `runtime.dex` |
-| `target-app/` | 设备侧语义考卷 app（36 个 fixture，见其 README） |
+| `app/src/main/java/com/dexvm/host/` | 宿主入口、`UiBridgeMaterializer`、`PopupMenuBridge`/`ToastBridge`/`NotificationBridge`/`SensorBridge`/`TlsBridge`/`FontBridge` |
+| `runtime-libs/` | Guest boot classpath Java 源码（1805 个文件，其中 269 个 `android.*`），编译为 `runtime.dex` |
+| `target-app/` | 设备侧语义考卷 + UI 兼容考卷 app（36 个 fixture，见其 README） |
 | `docs/art-runtime-v2/` | 行为规格/实施手册（权威设计文档，15 篇） |
 | `tools/` | 各层测试入口脚本（host/device） |
 | `tests/`、`app/src/main/cpp/tests/` | C++ 冒烟测试与 fixture 源码 |
-| `reference/art/` | Android/ART 源码只读快照，仅供语义对照 |
+| `reference/art/` | Android/ART 源码只读快照（本地 checkout，不入库），仅供语义对照 |
 
-代码量：C++ 约 7.7 万行（含测试与头文件），runtime-libs Java 约 27.4 万行，
-宿主 Java 约 2.8 千行。
+代码量：C++ 约 8.9 万行（含测试与头文件），runtime-libs Java 约 27.8 万行，
+宿主 Java 约 4.7 千行，target-app 约 5.9 千行。
 
 ---
 
@@ -94,7 +107,7 @@ measure 失败（RecyclerView / FragmentStateAdapter / PAG clinit 等）会让�
 │  │        │                                                                         │  │
 │  │        ├─ ClassLinker ─ Interpreter ─ Object/Heap/GC ─ InternTable               │  │
 │  │        ├─ JNI env / native 库加载 / Binder domain / 协程调度                      │  │
-│  │        ├─ framework builtins（View / Activity / Resources / ...，196 类）          │  │
+│  │        ├─ framework builtins（View / Activity / Resources / ...，119 类）          │  │
 │  │        └─ guest boot classpath：runtime.dex（runtime-libs）                        │  │
 │  └──────────────────────────────────────────────────────────────────────────────────┘  │
 │        │                                                                              │
@@ -102,11 +115,12 @@ measure 失败（RecyclerView / FragmentStateAdapter / PAG clinit 等）会让�
 │        ▼                                                                              │
 │  UiBridgeMaterializer ── 真 android.view.View 树 ── HWUI 出画                          │
 │        │                                                                              │
-│        └─ 点击：viewId → nativeDispatchViewClick → guest listener                     │
+│        └─ 交互回灌：objectId/token → nativeDispatch* → guest listener                  │
 └───────────────────────────────────────────────────────────────────────────────────────┘
 
-其它宿主通道：通知（NotificationBridge）、传感器（SensorBridge）、TLS（TlsBridge）、
-             网络（URLConnection/Socket 语义 → 宿主真实网络）
+其它宿主通道：通知（NotificationBridge）、Toast（ToastBridge）、弹层（PopupMenuBridge）、
+             传感器（SensorBridge）、TLS（TlsBridge）、字体度量（FontBridge）。
+网络（URLConnection/Socket）由 VM 内建语义直接走宿主内核网络栈。
 ```
 
 ### 3.1 分层职责
@@ -124,7 +138,7 @@ measure 失败（RecyclerView / FragmentStateAdapter / PAG clinit 等）会让�
 ## 4. 内建类与 runtime-libs 的协作
 
 - `core/builtin_classes.def` 是**单一事实源**：当前 76 个 core 内建类 +
-  120 个 framework 内建类。三类消费者：
+  119 个 framework 内建类。三类消费者：
   1. `builtins.cc` / `framework_builtins.cc` 的注册表；
   2. `runtime-libs` 打包排除集（同名类由 VM 独占，其 vendored 源仍参与编译，
      作 source-override 提供构造器/字段面）；
@@ -137,7 +151,8 @@ measure 失败（RecyclerView / FragmentStateAdapter / PAG clinit 等）会让�
   源码树中的类，javac 会失败，构建脚本**静默跳过**并写入
   `runtime-libs/build/runtime-packaging/uncompilable.txt`。
   新增类必须同时补齐它引用的所有类（如 `AccessibilityServiceInfo`），
-  构建后检查该文件应为空。
+  构建后检查该文件：**新增类不得出现在其中**（当前 26 个 vendored JDK
+  源为已知基线例外）。
 
 ---
 
@@ -172,13 +187,17 @@ window.attach
 
 关键行为：
 
-- `traversal` 现在允许**降级**：个别组件 measure 抛异常时清异常、跳过后续步骤，
+- `traversal` 允许**降级**：个别组件 measure 抛异常时清异常、跳过后续步骤，
   仍以当前树 present（否则整窗永远不出画）。实现见 `framework/render.cc`。
 - 首帧 present 后进入 **session keep-alive**：泵 guest Looper 队列、dirty 时
-  重新 traversal、diff 出 ViewPatch、交互点击回灌。
-- 节点几何使用 **guest 绝对坐标**（`mLeft/mTop/mRight/mBottom`），宿主物化器
-  按绝对 bounds 摆放，不重跑宿主 measure 语义——这是 P1 的实现口径，也是当前
-  0 尺寸问题的来源（见 §0、§7）。
+  重新 traversal、diff 出 ViewPatch、交互回灌。
+- 节点几何优先使用 **guest 绝对坐标**（`mLeft/mTop/mRight/mBottom`）；无有效
+  几何的节点由宿主按布局语义 measure/layout（layoutKind/gravity/weight/margins
+  随快照下发），不再依赖 guest 几何全量收敛。
+- AOSP 默认尺寸语义在 VM measure 中补齐：Button/EditText 最小高度 48dp
+  （guest density=2 → 96px），修复“按钮过扁/输入框不可点”。
+- 宿主输入焦点不再被会话日志 `fullScroll(FOCUS_DOWN)` 抢走（改 `scrollTo`），
+  EditText 键入与 AutoCompleteTextView 下拉保持稳定。
 
 ---
 
@@ -189,6 +208,7 @@ window.attach
 - 协议定义/序列化：`app/src/main/cpp/bridge/ui_bridge_protocol.{h,cc}`
 - JNI 出口：`app/src/main/cpp/bridge/ui_bridge_jni.cc`
 - 宿主物化器：`app/src/main/java/com/dexvm/host/UiBridgeMaterializer.java`
+- 弹层桥队列：`app/src/main/cpp/core/popup_bridge.{h,cc}` + `PopupMenuBridge.java`
 
 线格式（小端）：
 
@@ -201,16 +221,27 @@ kind: 1 = 全量快照（新基线），2 = 增量 patch（base_revision → rev
 
 - `ViewNode`：`HostHandle{object_id, kind}`、guest viewId、类名、父/子索引、
   `Prop` 列表、children。
-- 属性（`PropKey`）：text、visibility、bounds、padding、textSize、textColor、
+- 属性（`PropKey`，1–38）：text、visibility、bounds、padding、textSize/textColor、
   backgroundColor、alpha、scroll、measured、layoutParams、hasClickListener、
-  translation、gravity、imageResource/imageBytes、progress、video path/seek/playing。
+  translation、gravity、imageResource/imageBytes、progress、video path/seek/playing、
+  layout gravity/orientation/margins/weight/kind、windowDim、checked、
+  hasLongClickListener、rating/numStars、drawerOpen、subtitle/navClick/menuItems、
+  suggestions、date/time、windowPopupToken。
 - `HostObjectKind` 预留：`kView`（已实现）、`kWindow`、`kContextService`、
   `kResource`——同一句柄/属性/patch 骨架可扩展非 View framework 对象。
 - `DrawCommand`：save/restore、translate、matrix、clip、fillRect、drawText、
   drawBitmap、drawLine、drawCircle、frameBegin（缝 A 绘制命令流）。
-- 宿主物化：TextView/ImageView/LinearLayout/RelativeLayout/FrameLayout/
-  ScrollView/Button/EditText/ProgressBar/Switch/VideoView 等映射为真控件；
-  APK 内图片字节直接交宿主解码；点击按 viewId 回灌 guest listener。
+- 宿主物化映射：TextView/ImageView/Button/ImageButton/EditText/AutoCompleteTextView/
+  CheckBox/RadioButton/ToggleButton/Switch/CheckedTextView/SeekBar/RatingBar/
+  ProgressBar/ListView/GridView/Spinner/ScrollView/LinearLayout/FrameLayout/
+  RelativeLayout/Toolbar/DrawerLayout（androidx）/DatePicker/TimePicker/VideoView
+  等映射为真控件；APK 内图片字节直接交宿主解码。
+- 窗口类叠加（多根快照）：Dialog 内容根带 `kPropWindowDim`（宿主加 dim 遮罩）；
+  PopupWindow 内容根带 `kPropWindowPopupToken`（宿主 elevation 浮层卡片 +
+  透明外点关闭层）。
+- 交互回灌：点击/长按/文本/SeekBar/Rating/Drawer/MenuClick/Date-Time 字段经
+  `nativeDispatchView*` 按 objectId 回灌；PopupMenu 菜单项与外点关闭经
+  `nativeDispatchPopupEvent(token, kind, index)` 回灌；Toast 经宿主真 Toast 呈现。
 
 ---
 
@@ -218,21 +249,24 @@ kind: 1 = 全量快照（新基线），2 = 增量 patch（base_revision → rev
 
 ### 7.1 已实现的宿主通道
 
-- UI 树快照/增量/点击回灌；
-- 通知（`NotificationBridge`）、传感器（`SensorBridge`）、TLS（`TlsBridge`）；
-- 网络、文件、Binder、MediaPlayer/Surface 等基础 JNI/系统服务面。
+- UI 树快照/增量/交互回灌（点击/长按/文本/Seek/Rating/Drawer/Menu/字段/弹层）；
+- 窗口类弹层：Dialog/AlertDialog 叠加根（dim 遮罩）、PopupWindow 浮层、
+  PopupMenu（宿主真菜单）；
+- Toast（`ToastBridge`）、通知（`NotificationBridge`）、传感器（`SensorBridge`）；
+- 文字测量/字体度量（`core/framework_font.cc` 字体工作线程 ↔ `FontBridge.java`，
+  `Paint.measureText`/`FontMetrics` 走宿主真字体）；
+- TLS（`TlsBridge`）；网络、文件、Binder、MediaPlayer 等 VM 内建/系统服务面。
 
 ### 7.2 已立项、待接线的桥（用户明确要求，不做空桩）
 
 | 桥 | 目标 | 现状 |
 | --- | --- | --- |
-| 文字测量 | `Paint.measureText` / `FontMetrics` → 宿主真字体度量 | `core/host_bridge.h` 的 `HostBridgeOps` 缝已定义，未接线 |
-| 系统栏 | `WindowInsetsController.show/hide/Appearance` → 宿主系统栏 | 同上 |
+| 系统栏 | `WindowInsetsController.show/hide/Appearance` → 宿主系统栏 | `core/host_bridge.h` 的 `HostBridgeOps` 缝已定义，未接线 |
 | 无障碍 | 真实 enabled / touch exploration 状态、监听器注册 | 同上 |
 | 输入法 | showSoftInput/hideSoftInput、编辑事件回灌 | 骨架已定，待接线 |
 | 动画资源管线 | XML 动画解析 + Choreographer 帧循环 + 属性回写 | 未实现 |
 | TextureView/SurfaceTexture/Surface | 宿主对象代理、GL 帧回调、native 直通、lockCanvas | 未实现；PAG native 因此暂时被阻断 |
-| 宿主布局 | 物化后的真 View 自行 measure/layout，guest 不再算几何 | 设计方向，未落地 |
+| 宿主布局 | 物化后的真 View 自行 measure/layout，guest 不再算几何 | **已落地**：有 guest 绝对几何按 bounds 绝对布局，无几何节点宿主 measure/layout |
 
 > `org.libpag.*` native 当前在 `InvokeNativeTrampoline` 中主动抛
 > `UnsatisfiedLinkError`（Surface/GL 桥未就绪时，native 会在垃圾 Surface
@@ -276,6 +310,17 @@ adb shell am start -n com.dexvm.host/.MainActivity
 /data/user/0/com.dexvm.host/files/apps/<package>
 ```
 
+把 target-app 放进宿主桌面（UI 兼容考卷，需先构建 target-app）：
+
+```bash
+adb push target-app/build/outputs/apk/debug/target-app-debug.apk /data/local/tmp/target-app-debug.apk
+adb shell run-as com.dexvm.host cp /data/local/tmp/target-app-debug.apk files/apps/target-app-debug.apk
+# 考卷直跑线（nativeRunTargetExam）从 files/ 根读 asset 副本：
+adb shell run-as com.dexvm.host cp /data/local/tmp/target-app-debug.apk files/target-app-debug.apk
+```
+
+桌面点选「Minimal Android」即启动 Gallery 画廊会话；日志断言见 §11。
+
 ### 8.3 主机侧测试
 
 ```bash
@@ -300,9 +345,14 @@ tools/runtime_coverage_tests.sh
 | `WindowInsetsController.show` NPE | `Window` 由 `AllocObject` 分配，构造器与字段初始化不执行 | lib `Window.getInsetsController()` 惰性创建；`View.getWindowInsetsController` 提供内建实现 |
 | lib 新增类莫名"NoClassDefFound" | runtime-libs 只编译自身源码树，引用缺失类时 javac 失败且**静默跳过** | 构建后检查 `uncompilable.txt`；缺类必须补进源码树（或用 api_stub） |
 | PAG native SEGV（mutex 锁垃圾句柄） | `Surface` 是空壳，native 收到无效 handle | 暂时对 `org.libpag.*` 抛 `UnsatisfiedLinkError`，等 Surface/GL 桥 |
-| measure 失败导致整窗不出画 | traversal 一失败就终止，首帧永远 present 不了 | traversal 可降级：清异常、跳过后续步骤、按现树 present；节点几何仍可能为 0 |
+| measure 失败导致整窗不出画 | traversal 一失败就终止，首帧永远 present 不了 | traversal 可降级：清异常、跳过后续步骤、按现树 present；无几何节点由宿主 measure/layout |
 | `CaptureThrowBacktrace` 在宿主泵上下文 SEGV | 跨任务残帧无 owner，读 `m->declaring` 崩溃 | owner 为空直接返回 |
 | 启动耗时被放大 | Debug 默认 -O0，switch 解释器启动链被放大数倍 | Debug 也强制 `-O2`；诊断日志限流（JniStr ≤300、FindMiss 每描述符一次、LP/F2 只记失败） |
+| 按钮过扁、EditText 不可点 | VM `TextView.onMeasure` 缺 AOSP 默认 minHeight | Button/EditText 族补 48dp 下限（guest density=2 → 96px） |
+| ACTV 下拉 13–535ms 内自动关闭 | 宿主日志 `fullScroll(FOCUS_DOWN)` 触发跨窗口 `requestFocus`，抢走 guest 焦点 | 宿主日志改为 `scrollTo`；`applyProps` 等值跳过 + `pendingHostEdits` 抑制旧快照覆盖键入 |
+| Drawer 宿主态不回灌 | 抽屉子 View gravity 与 `Gravity.LEFT` 掩码比较错误 | `(gravity & HORIZONTAL_GRAVITY_MASK) == Gravity.LEFT` |
+| Toolbar 导航点击 NoSuchMethodError | guest `performClick` 覆写经 invoke-interface 调 `OnClickListener.onClick`，内建接口无方法骨架 | builtin `View$OnClickListener` 补 `onClick(Landroid/view/View;)V` 骨架 |
+| PopupMenu 点击事件丢失 | 宿主菜单点击后紧随的 dismiss 覆盖 session 单槽中的点击事件 | 点击路径不再回送 dismiss（guest lib 在 `onHostMenuItemClick` 内自行关闭） |
 
 ---
 
@@ -310,14 +360,14 @@ tools/runtime_coverage_tests.sh
 
 按优先级：
 
-1. **基础框架 UI 可见（P0）**
-   - 按既定方向让宿主接管 measure/layout：物化出的真 View 自己 measure，
-     guest 只提供结构/字段态；或先修完 traversal 的 measure 失败点，使 bounds 收敛。
-   - 验收：断网冷启动后屏幕出现非空基础界面（标题栏/列表/占位均可），
-     `DexVmUiBridge: ... full nodes=N` 且节点尺寸非 0、`presented>0`。
-2. **HostBridgeOps 实装（P0）**
-   - 接线 `measure_text` / `font_metrics` / insets / accessibility / IME，
-     宿主侧实现放 `com.dexvm.host.VmHostBridge`，`runtime_contract` 安装函数指针。
+1. **加固 APK 业务页面逐屏回归（P0）**
+   - UI 物化桥与 widget 画廊已在 target-app 全量验证；下一步用同一桥轨回归加固
+     APK 的真实业务页面（列表/图片/复杂布局），按 AOSP 语义修偏差。
+   - 验收：断网冷启动后业务首页出现非空界面，`DexVmUiBridge: ... full nodes=N`
+     且关键节点尺寸非 0。
+2. **HostBridgeOps 剩余面（P0）**
+   - 文字测量/字体度量已接线（`framework_font.cc` ↔ `FontBridge.java`）；
+     待接线 insets / accessibility / IME（`core/host_bridge.h` 缝）。
 3. **Surface/TextureView/GL 桥（P1）**
    - 宿主 Surface/SurfaceTexture 代理 + 帧回调 + native 直通；完成后移除
      `org.libpag.*` 临时阻断。
@@ -327,7 +377,7 @@ tools/runtime_coverage_tests.sh
    - launch 期间派发 IdleHandler，消除 APM `LaunchIdleDispatcher` 的 6×15 s 等待。
 6. **清理与回归（P2）**
    - 移除 TEMP DIAG；更新 `render_smoke` 对"降级 traversal"的旧断言；
-   - runtime-libs `uncompilable.txt` 保持为空；
+   - runtime-libs `uncompilable.txt` 不新增条目（26 个 vendored JDK 基线例外保持稳定）；
    - 设备侧连续冷启动回归。
 
 ---
@@ -341,7 +391,12 @@ tools/runtime_coverage_tests.sh
 | `DexVmProgress` | `phase <name> ok/FAIL (<ms>)`，启动/首帧阶段进度 |
 | `DexVmRender` | `traversal degraded`、measure/layout 失败原因 |
 | `DexVmViewTree` | `present root=<descriptor> nodes=<N>` |
-| `DexVmUiBridge` | 宿主物化：revision / full vs patch / 节点数 |
+| `DexVmUiBridge` | 宿主物化：revision / full vs patch / 节点数 / 窗口叠加根 |
+| `DexVmDialog` | Dialog / PopupWindow 窗口登记与叠加根布局 |
+| `DexVmPopup` | PopupMenu 弹层桥（show/click/dismiss 回灌） |
+| `DexVmToast` | 宿主 Toast 桥 |
+| `DexVmNotify` / `DexVmSensors` | 通知 / 传感器宿主桥 |
+| `DexVmTlsBridge` | guest TLS ↔ 宿主 TLS 栈 |
 | `DexVmHeap` | 堆越界 / BAD-FREE-BLOCK / BAD-ALLOC |
 | `DexVmFindMiss` / `DexVmDefineFail` | 类查找/定义失败（已限流） |
 | `DexVmJniStr` | JNI 字符串桥诊断（封顶 300 条） |
@@ -349,7 +404,7 @@ tools/runtime_coverage_tests.sh
 常用命令：
 
 ```bash
-adb logcat -s DexVmProgress DexVmRender DexVmViewTree DexVmUiBridge DexVmHeap
+adb logcat -s DexVmProgress DexVmRender DexVmViewTree DexVmUiBridge DexVmDialog DexVmPopup DexVmHeap
 adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml
 ```
 
@@ -357,7 +412,8 @@ adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml
 `nativeGetViewSnapshot()` 取最近一次 present 的树快照。
 
 排障顺序建议：`phase 失败点` → `DexVmFindMiss/DefineFail`（缺类）→
-`DexVmThrow`（guest 异常）→ `DexVmRender`（traversal）→ `DexVmUiBridge`（物化）。
+`DexVmThrow`（guest 异常）→ `DexVmRender`（traversal）→ `DexVmUiBridge`（物化）
+→ `DexVmDialog/DexVmPopup`（窗口叠加与弹层回灌）。
 
 ---
 

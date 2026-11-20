@@ -5,7 +5,7 @@
 [上一部分](13-diagnostics-tests-and-delivery.md)
 
 > 本手册为行为规格：实现为全自研 libdexvm.so（不编译 ART），执行语义以
-> Android/ART 原生行为为准，third_party/art 源码快照仅作对照。
+> Android/ART 原生行为为准，本地 ART 源码快照仅作对照。
 > 本章是 M1/M2 里程碑的实施考纲：必须实现的 API 语义清单与对照出处。
 
 ## 27. M1 考纲：核心 VM
@@ -208,9 +208,10 @@ boot classpath，普通 app 可跑；加固失败根因是 guest 世界是演示
 
 ### 30.2 可直接复用
 
-1. **runtime-libs 整模块**：24 组件白名单、OpenJDK 源树、6 个 android ABI
-   桩、jre-excluded 机制、d8→runtime.dex→manifest.json 流水线。适配点：
-   jre-excluded 24 类改为 VM 内建，Context ~120 个 native 方法接宿主桥。
+1. **runtime-libs 整模块**：OpenJDK 源树、android API 适配源码、d8→runtime.dex
+   →manifest.json 流水线（打包排除集现由 `builtin_classes.def` 自动派生）。
+   适配点：v1 的 24 类内建名单按 §31 边界重新分档（Java 本体下沉 lib，VM 只留
+   native 面）；Context ~120 个 native 方法接宿主桥。
 2. **v1 夹具矩阵**（flow 清单）：类初始化/异常/数组/弱引用+finalize+GC/
    monitor/文件 IO/静态调用/Runtime——直接作 conformance 测试集蓝本。
 3. **进程模型**：isolated worker（:vm_worker）+ AIDL 协议 + 能力协商 +
@@ -281,24 +282,26 @@ Q1 → 只有"简单且热"才追加 Q3。整类内建只允许两种例外：
    RegisterNativeMethods/runtime-native 注册）；
 4. **布局契约**：lib 类源码字段声明必须与 VM 布局一致（ART mirror ↔ libcore
    字段约定）；String/StringBuilder 等需 VString 布局适配（见 31.5）；
-5. **翻转**：拆分完成同一提交内原子变更——删 builtin 注册、jre-excluded
-   移出该类、runtime-components 放行。
+5. **翻转**：拆分完成同一提交内原子变更——删 builtin 注册、runtime-components
+   记录同步（打包排除集随 `builtin_classes.def` 自动收缩）。
 
-### 31.4 排除清单口径（jre-excluded.txt 新语义）
+### 31.4 打包排除集口径（自动派生，无手工清单）
 
-旧口径（v1 "24 类 VM 内建不打包"）已失效。新口径：
+旧口径（v1 "24 类 VM 内建不打包"、allowlist / jre-excluded.txt）已失效。
+当前实现（`runtime-libs/build.gradle.kts`）：
 
-- jre-excluded.txt = **当前 builtin 注册集 − 已迁 lib 集**，即"runtime.dex
-  不得打包的类"。规则：任何 RegisterBuiltinClass 登记的类必须在排除清单；
-  任何 runtime-components runtimeClasses 放行的类不得是 builtin（构建
-  verify 沿用 `allowlist ∩ excluded = ∅` 强制）。前缀规则（`name` 或
-  `name$…`）自动覆盖内部类，清单列主类即可。
-- VM 必需（拆分）类在拆分完成前留在清单（防遮蔽死副本），拆分完成随 31.3
-  第 5 步翻转移出。
-- 原名单中未内建/未完整内建的类（reflect.Proxy、InvocationHandler、
+- 打包排除集 = **`core/builtin_classes.def` 的类描述符全集**（构建期由
+  X 宏清单自动派生；`name` 前缀规则覆盖内部类）。该文件是内建类集的唯一
+  权威表达，`builtins.cc` / `framework_builtins.cc` 注册面与
+  `tools/runtime_coverage_tests.sh` 同源读取并做一致性断言。
+- `runtime-components.json` 退化为纯元数据（组件/版本/外部依赖记录）；
+  打包集合不再由它决定，`externalClasses` 仅用于第三方 jar 提取口径。
+- VM 必需（拆分）类在拆分完成前登记为 builtin（自动排除，防遮蔽死副本），
+  拆分完成随 31.3 第 5 步删除 builtin 注册，排除集自动收缩。
+- v1 名单中未内建/未完整内建的类（reflect.Proxy、InvocationHandler、
   LockSupport、FileDescriptor、InputStream、FileInputStream、
   FileOutputStream、Socket、ServerSocket、Process、ProcessBuilder、
-  sun.misc.Unsafe 等）按 C 处理：移出清单，类定义改由 lib 承担；其 VM 语义
+  sun.misc.Unsafe 等）按 C 档处理：类定义由 lib 承担；其 VM 语义
   （文件 IO/网络/park/进程）以 Q2 native 面补进 lib 类，不再整类内建。
 
 ### 31.5 迁移注意（布局耦合点）
@@ -324,7 +327,8 @@ Q1 → 只有"简单且热"才追加 Q3。整类内建只允许两种例外：
 1. 该类/方法的 Java 本体为什么不放 lib？（只有 Q1/Q2/Q3 判据成立才准内建）
 2. 对照 ART：对应 java_lang_*.cc 的哪个 native？多出来的部分是不是 Q4？
 3. 布局契约声明了吗（vm_types.h ↔ lib 源字段 offset 表）？
-4. 排除清单/allowlist 同步改了吗（同提交原子翻转，31.3 第 5 步）？
+4. `builtin_classes.def` 注册改了吗？（打包排除集自动派生；删注册即收缩，
+   31.3 第 5 步）
 5. 有双实现吗（builtin 与 runtime-components 同名类并存 = 构建该失败）？
 
 ### 31.7 分界定稿（lib 优先，2026-01-16）
@@ -357,6 +361,60 @@ java_lang_*.cc 同构），native 侧随之收缩。
 2. 需要 VM 内部状态/布局吗？→ 否 → lib。
 3. 热路径且实现简单？→ 是 → native intrinsic；否 → lib。
 4. 复杂类（方法面多/语义重）→ 永远 lib。
+
+## 32. UI 兼容批次落地清单（as-built，2026-11-20）
+
+按 31.7「C 档：lib 默认」落地 UI 兼容批次：widget 语义在 runtime-libs
+（runtime.dex），出画/交互在宿主物化桥。验证设备 = MuMu 模拟器，
+考卷 = `target-app`（`com.coke.target` Gallery 画廊）。
+
+### 32.1 runtime-libs 新增/扩展（guest boot classpath）
+
+| 类 | 形态 | 语义面 |
+| --- | --- | --- |
+| `android.widget.Toolbar` | lib（extends FrameLayout） | 标题/子标题/导航点击/`MenuBuilder` 菜单；宿主真 Toolbar 物化 |
+| `android.widget.AutoCompleteTextView` | lib（extends EditText） | setAdapter 建议项镜像、threshold、showDropDown/dismissDropDown |
+| `android.widget.DatePicker` / `TimePicker` | lib | 年月日/时分状态 + OnDateChanged/OnTimeChanged，`onHostFieldsChanged` 回灌 |
+| `android.widget.PopupMenu` | lib | MenuBuilder 菜单 + OnMenuItemClickListener/OnDismissListener；`VmLayoutHost.showPopupMenu` 宿主真弹层 |
+| `android.widget.PopupWindow` | lib | showAsDropDown/showAtLocation（父链绝对坐标）、dismiss、OnDismissListener；叠加根经 `kPropWindowPopupToken` |
+| `androidx.drawerlayout.widget.DrawerLayout` | lib 垫片 | 开合状态 + DrawerListener；宿主真 androidx DrawerLayout 手势/动画 |
+| `android.view.MenuBuilder` | lib | Menu/MenuItem 全语义 + `mTitleArray` 标题镜像 |
+| `android.view.VmLayoutHost` | 编译脚手架 | VM 内建 intrinsic 入口（Dialog/窗口/弹层，方法体抛 UnsupportedOperationException） |
+
+### 32.2 宿主物化映射（UiBridgeMaterializer.java）
+
+```text
+TextView/Button/ImageButton/EditText/AutoCompleteTextView/CheckBox/
+RadioButton/ToggleButton/Switch/CheckedTextView/SeekBar/RatingBar/
+ProgressBar/ImageView/ListView/GridView/Spinner/ScrollView/
+LinearLayout/FrameLayout/RelativeLayout/VideoView
+  -> 真 android.view.* 控件
+Toolbar         -> 真 android.widget.Toolbar（标题/子标题/汉堡/菜单重建）
+DrawerLayout    -> 真 androidx.drawerlayout.widget.DrawerLayout（elevation/手势）
+DatePicker/TimePicker -> 真控件（字段双向同步 + 回声抑制）
+Dialog          -> 多根叠加 wrapper + dim 遮罩
+PopupWindow     -> 叠加根 + elevation 浮层 + 透明外点关闭层
+```
+
+### 32.3 交互回灌 API（JNI contract）
+
+```text
+nativeDispatchViewClick / ObjectClick / LongClick / Text / Seek / Rating /
+Drawer / MenuClick / Fields
+nativeDispatchPopupEvent(token, kind, index)
+```
+
+会话线程单槽派发；guest listener 经 `MarkClickListenerRoots` /
+`MarkPopupRoots` 登记 GC 外部根；弹层 token -> guest 对象映射在 VM 内。
+
+### 32.4 验收（设备侧，MuMu）
+
+- DrawerLayout 手势/按钮开合双向同步；Toolbar 菜单点击回灌；
+- ACTV 下拉持久显示（修复宿主 `fullScroll` 抢焦点）；EditText 键入回灌；
+- Date/TimePicker 字段回灌；Dialog/AlertDialog/Toast；
+- PopupMenu 点击 `Copy/Share/Delete` 回灌 + 外点关闭；PopupWindow 浮层
+  外点关闭回灌。
+- logcat tag：`DexVmUiBridge`、`DexVmDialog`、`DexVmPopup`、`DexVmToast`。
 
 ## 附录：语义对照源文件索引
 
