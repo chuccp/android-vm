@@ -83,6 +83,8 @@ extern "C" bool DexVmSessionEnqueueText(uint32_t object_id, const char* text, si
 extern "C" bool DexVmSessionEnqueueSeek(uint32_t object_id, int32_t progress, int32_t phase);
 extern "C" bool DexVmSessionEnqueueRating(uint32_t object_id, int32_t milli_rating);
 extern "C" bool DexVmSessionEnqueueDrawer(uint32_t object_id, int32_t open);
+extern "C" bool DexVmSessionEnqueueMenuClick(uint32_t object_id, int32_t index);
+extern "C" bool DexVmSessionEnqueueFields(uint32_t object_id, int32_t a, int32_t b, int32_t c);
 
 // 长按回灌：host 长按 -> objectId -> guest performLongClick。
 extern "C" JNIEXPORT jstring JNICALL
@@ -162,6 +164,36 @@ Java_com_dexvm_host_NativeBridge_nativeDispatchViewDrawer(JNIEnv* env, jclass, j
              (open ? "1" : "0");
   } else {
     status = dexvm::bridge::InjectGuestObjectDrawer(nullptr, id, open == JNI_TRUE);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
+// Toolbar 菜单项点击回灌：host 真 Toolbar 溢出菜单 -> objectId + index。
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchViewMenuClick(JNIEnv* env, jclass,
+                                                             jint object_id, jint index) {
+  uint32_t id = static_cast<uint32_t>(object_id);
+  std::string status;
+  if (DexVmSessionEnqueueMenuClick(id, index)) {
+    status = "queued objectId=" + std::to_string(id) + " menu-index=" +
+             std::to_string(index);
+  } else {
+    status = dexvm::bridge::InjectGuestObjectMenuClick(nullptr, id, index);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
+// 选择器字段回灌：host 真 DatePicker/TimePicker -> objectId + (a,b,c)。
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchViewFields(JNIEnv* env, jclass, jint object_id,
+                                                          jint a, jint b, jint c) {
+  uint32_t id = static_cast<uint32_t>(object_id);
+  std::string status;
+  if (DexVmSessionEnqueueFields(id, a, b, c)) {
+    status = "queued objectId=" + std::to_string(id) + " fields=" + std::to_string(a) + "," +
+             std::to_string(b) + "," + std::to_string(c);
+  } else {
+    status = dexvm::bridge::InjectGuestObjectFields(nullptr, id, a, b, c);
   }
   return env->functions->NewStringUTF(env, status.c_str());
 }

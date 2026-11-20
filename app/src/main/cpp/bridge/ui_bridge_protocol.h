@@ -91,6 +91,15 @@ enum PropKey : uint16_t {
   kPropDrawerOpen = 31,       // kBool    — DrawerLayout.mDrawerOpen（guest 开合态；
                               //            宿主真 androidx DrawerLayout 联动，
                               //            宿主手势开合经回灌通道反向同步）
+  kPropSubtitle = 32,         // kString  — Toolbar.mSubtitle
+  kPropNavClick = 33,         // kBool    — Toolbar.mNavigationClickListener 非空
+                              //            （宿主装汉堡导航按钮，点击经点击通道回灌）
+  kPropMenuItems = 34,        // kString  — Toolbar 菜单项标题（\n 连接；
+                              //            宿主真 Toolbar 程序化重建菜单）
+  kPropSuggestions = 35,      // kString  — AutoCompleteTextView.mSuggestions
+                              //            （\n 连接；宿主真控件重建下拉项）
+  kPropDate = 36,             // kRect    — DatePicker mYear/mMonth/mDay
+  kPropTime = 37,             // kPoint   — TimePicker mHour/mMinute
 };
 
 struct PropValue {

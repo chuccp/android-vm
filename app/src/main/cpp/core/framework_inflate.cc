@@ -422,6 +422,10 @@ std::string WidgetDescriptorForTag(std::string_view tag, bool* constraint_approx
   if (tag == "CheckedTextView") return "Landroid/widget/CheckedTextView;";
   if (tag == "TableLayout") return "Landroid/widget/TableLayout;";
   if (tag == "TableRow") return "Landroid/widget/TableRow;";
+  if (tag == "Toolbar") return "Landroid/widget/Toolbar;";
+  if (tag == "AutoCompleteTextView") return "Landroid/widget/AutoCompleteTextView;";
+  if (tag == "DatePicker") return "Landroid/widget/DatePicker;";
+  if (tag == "TimePicker") return "Landroid/widget/TimePicker;";
   if (tag == "VideoView") return "Landroid/widget/VideoView;";
   if (tag == "LinearLayout") return "Landroid/widget/LinearLayout;";
   if (tag == "FrameLayout") return "Landroid/widget/FrameLayout;";

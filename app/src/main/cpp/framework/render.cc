@@ -415,7 +415,25 @@ Value ViewDraw(VMState& state, VObject* self, const Value* args, size_t n, bool*
   return Value{};
 }
 
-// TextView.onMeasure：mText/mTextSize 估宽高 + padding，按 MeasureSpec 收敛。
+// AOSP Button 样式 minHeight=48dp（guest DisplayMetrics.density=2 -> 96px）。
+bool IsButtonFamily(const VObject* view) {
+  if (view == nullptr || view->klass == nullptr) return false;
+  for (VClass* k = view->klass; k != nullptr; k = k->super_class) {
+    if (k->descriptor == "Landroid/widget/Button;") return true;
+  }
+  return false;
+}
+
+// AOSP EditText 默认样式 minHeight=48dp（同上，裸文本高度不可触碰）。
+bool IsEditTextFamily(const VObject* view) {
+  if (view == nullptr || view->klass == nullptr) return false;
+  for (VClass* k = view->klass; k != nullptr; k = k->super_class) {
+    if (k->descriptor == "Landroid/widget/EditText;") return true;
+  }
+  return false;
+}
+
+
 Value TVOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   (void)state;
   *ok = true;
@@ -461,6 +479,12 @@ Value TVOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bo
     desired_w = TextMeasureWidth(chars, len, size) + pad_w;
     desired_h = TextMeasureHeight(chars, len, size) + pad_h;
   }
+  // AOSP Button 样式 minHeight=48dp（guest DisplayMetrics.density=2 -> 96px）：
+  // 裸文本高度（~22dp）会让宿主原生 Button 物化时被绝对 bounds 压成细条。
+  // AOSP Button / EditText 默认样式 minHeight=48dp（guest DisplayMetrics
+  // .density=2 -> 96px）：裸文本高度（~22dp）会让宿主原生控件物化时被绝对
+  // bounds 压成细条，输入框点不中。
+  if ((IsButtonFamily(self) || IsEditTextFamily(self)) && desired_h < 96) desired_h = 96;
   SetMeasured(self, ResolveSize(desired_w, args[0].i), ResolveSize(desired_h, args[1].i));
   return Value{};
 }

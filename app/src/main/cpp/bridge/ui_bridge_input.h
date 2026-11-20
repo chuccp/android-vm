@@ -61,6 +61,18 @@ std::string InjectGuestObjectRating(dexvm::runtime::VMState* vm_state, uint32_t 
 std::string InjectGuestObjectDrawer(dexvm::runtime::VMState* vm_state, uint32_t object_id,
                                     bool open);
 
+// Toolbar 菜单项点击回灌：objectId + index -> guest onHostMenuItemClick
+// （lib Toolbar 派发 OnMenuItemClickListener）。状态串：
+//   "dispatched objectId=N menu-index=I" / "no-view …" / channel-ok …
+std::string InjectGuestObjectMenuClick(dexvm::runtime::VMState* vm_state, uint32_t object_id,
+                                       int32_t index);
+
+// 选择器字段回灌：objectId + (a,b,c) -> guest onHostFieldsChanged（DatePicker
+// 年月日 / TimePicker 时分；lib 控件覆写该方法派发 OnDate/OnTimeChangedListener）。
+// 状态串："dispatched objectId=N fields=a,b,c" / "no-view …" / channel-ok …
+std::string InjectGuestObjectFields(dexvm::runtime::VMState* vm_state, uint32_t object_id,
+                                    int32_t a, int32_t b, int32_t c);
+
 // 该 guest View 是否登记了 long-click 监听器（快照 kPropHasLongClickListener 用）。
 bool HasGuestLongClickListener(dexvm::runtime::VObject* view);
 

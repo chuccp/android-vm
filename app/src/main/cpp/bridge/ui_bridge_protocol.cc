@@ -99,6 +99,30 @@ ObjHeader* ViewRef(VObject* v, const char* name) {
   return f != nullptr ? GetRefField(v, f->offset) : nullptr;
 }
 
+// 引用字段若为 guest String 才当字符串读（CharSequence/Spannable 等跳过）。
+std::string Utf16ToUtf8(const uint16_t* chars, int32_t len);  // 定义于本 TU 后段
+
+VString* AsGuestString(ObjHeader* ref) {
+  if (ref == nullptr || ref->klass == nullptr) return nullptr;
+  if (ref->klass->descriptor != "Ljava/lang/String;") return nullptr;
+  return reinterpret_cast<VString*>(ref);
+}
+
+// String[] 字段 -> '\n' 连接（菜单标题/建议项镜像）。
+std::string JoinStringArray(VArray* array) {
+  std::string joined;
+  if (array == nullptr) return joined;
+  for (int32_t i = 0; i < array->length; i++) {
+    ObjHeader* sref = nullptr;
+    std::memcpy(&sref, array->data() + static_cast<size_t>(i) * 8, sizeof(sref));
+    if (i > 0) joined.push_back('\n');
+    if (VString* s = AsGuestString(sref)) {
+      joined += Utf16ToUtf8(s->chars(), s->length);
+    }
+  }
+  return joined;
+}
+
 // ---- UTF-16 <-> UTF-8 ----
 
 std::string Utf16ToUtf8(const uint16_t* chars, int32_t len) {
@@ -983,6 +1007,39 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
         // 宿主手势开合经 nativeDispatchViewDrawer 反向回灌 guest）。
         if (FindField(view->klass, "mDrawerOpen") != nullptr) {
           add(kPropDrawerOpen, PropValue::Bool(ViewI(view, "mDrawerOpen") != 0));
+        }
+        // Toolbar：标题/子标题/导航点击/菜单项标题（宿主真 Toolbar 重建）。
+        if (VString* title = AsGuestString(ViewRef(view, "mTitle"))) {
+          add(kPropText, PropValue::String(Utf16ToUtf8(title->chars(), title->length)));
+        }
+        if (VString* subtitle = AsGuestString(ViewRef(view, "mSubtitle"))) {
+          add(kPropSubtitle,
+              PropValue::String(Utf16ToUtf8(subtitle->chars(), subtitle->length)));
+        }
+        if (FindField(view->klass, "mNavigationClickListener") != nullptr) {
+          add(kPropNavClick,
+              PropValue::Bool(ViewRef(view, "mNavigationClickListener") != nullptr));
+        }
+        if (VObject* menu = reinterpret_cast<VObject*>(ViewRef(view, "mMenu"))) {
+          VArray* titles = reinterpret_cast<VArray*>(ViewRef(menu, "mTitleArray"));
+          if (titles != nullptr) {
+            add(kPropMenuItems, PropValue::String(JoinStringArray(titles)));
+          }
+        }
+        // AutoCompleteTextView：建议项镜像（宿主重建原生下拉项）。
+        if (VArray* suggestions = reinterpret_cast<VArray*>(ViewRef(view, "mSuggestions"))) {
+          add(kPropSuggestions, PropValue::String(JoinStringArray(suggestions)));
+        }
+        // DatePicker / TimePicker：状态字段（宿主原生选择器同步）。
+        if (FindField(view->klass, "mYear") != nullptr &&
+            FindField(view->klass, "mMonth") != nullptr &&
+            FindField(view->klass, "mDay") != nullptr) {
+          add(kPropDate, PropValue::Rect(ViewI(view, "mYear"), ViewI(view, "mMonth"),
+                                         ViewI(view, "mDay"), 0));
+        }
+        if (FindField(view->klass, "mHour") != nullptr &&
+            FindField(view->klass, "mMinute") != nullptr) {
+          add(kPropTime, PropValue::Point(ViewI(view, "mHour"), ViewI(view, "mMinute")));
         }
         VString* video_path = reinterpret_cast<VString*>(ViewRef(view, "mVideoPath"));
         if (video_path != nullptr && video_path->length > 0) {

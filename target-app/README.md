@@ -70,8 +70,12 @@ dex 规模 5 个 classes*.dex（三方占大头）。
 ### 资源/媒体面
 
 - `res/layout/runtime_primary.xml`：**androidx.DrawerLayout 根（原生侧滑菜单）+ `<include>`**、约 20 个 id；
-  内容面 = 顶栏（☰ 菜单）× ScrollView 的 section 卡片（Basics / Selection / Lists & grids / Layouts /
-  Dialogs & feedback / Network / Media / Runtime status），抽屉面 = 200dp start 抽屉（NavigationView
+  内容面 = 原生 Toolbar（guest lib `android.widget.Toolbar` -> 宿主真 Toolbar：标题/子标题/汉堡导航/
+  溢出菜单，菜单项点击经 `nativeDispatchViewMenuClick` 回灌）× ScrollView 的 section 卡片（Basics /
+  Selection / Lists & grids / Layouts / Dialogs & feedback / Network / Media / Runtime status；其中
+  Basics 含 AutoCompleteTextView（guest 建议项镜像 -> 宿主真下拉），Selection 含 DatePicker /
+  TimePicker（宿主真 Material 选择器，年月日/时分经 `nativeDispatchViewFields` 双向同步）），
+  抽屉面 = 200dp start 抽屉（NavigationView
   风格：深色头图 + 48dp 列表行 + 当前项 accent 高亮）。guest 侧是 runtime.dex 的
   `androidx.drawerlayout.widget.DrawerLayout` 垫片（mDrawerOpen + DrawerListener 语义）；宿主物化层把
   同一节点换真 androidx DrawerLayout——边缘滑动手势/滑动动画/遮罩/阴影是原生行为，开合经快照

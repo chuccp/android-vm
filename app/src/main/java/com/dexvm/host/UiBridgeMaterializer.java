@@ -4,6 +4,11 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.ColorFilter;
+import android.graphics.Paint;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
@@ -12,12 +17,16 @@ import android.text.TextWatcher;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.Menu;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CheckedTextView;
 import android.widget.CompoundButton;
+import android.widget.DatePicker;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -31,6 +40,7 @@ import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.TimePicker;
 import android.widget.ToggleButton;
 import android.widget.VideoView;
 
@@ -110,6 +120,12 @@ public final class UiBridgeMaterializer {
     private static final int PROP_RATING = 29;
     private static final int PROP_NUM_STARS = 30;
     private static final int PROP_DRAWER_OPEN = 31;
+    private static final int PROP_SUBTITLE = 32;
+    private static final int PROP_NAV_CLICK = 33;
+    private static final int PROP_MENU_ITEMS = 34;
+    private static final int PROP_SUGGESTIONS = 35;
+    private static final int PROP_DATE = 36;
+    private static final int PROP_TIME = 37;
 
     private static final int TYPE_INT = 1;
     private static final int TYPE_FLOAT = 2;
@@ -198,12 +214,32 @@ public final class UiBridgeMaterializer {
             Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
     // 快照已驱动到的宿主开合态：动画结束后的 onDrawerOpened/Closed 回声据此丢弃。
     private final Map<View, Boolean> drawerLastApplied = new IdentityHashMap<>();
+    // Toolbar 导航按钮/菜单项重建（按快照属性增量应用，避免重复挂接）。
+    private final Set<View> toolbarNavInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Set<View> toolbarMenuListenersInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Map<View, String> appliedToolbarMenu = new IdentityHashMap<>();
+    // AutoCompleteTextView：建议项/适配器只在内容变化时重建。
+    private final Map<View, String> appliedSuggestions = new IdentityHashMap<>();
+    // DatePicker/TimePicker：宿主控件改动回灌 + 快照回写回声抑制。
+    private final Set<View> dateListenersInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Set<View> suppressDateEvents =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Set<View> timeListenersInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Set<View> suppressTimeEvents =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
     // 快照回写 rating 时抑制回调（避免 host->guest 回声）。
     private final Set<View> suppressRatingEvents =
             Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
     // 快照回写文本时抑制 TextWatcher 回灌（避免 host->guest 回声）。
     private final Set<View> suppressTextEvents =
             Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    // 宿主刚键入、guest 尚未追平的文本（uptime 毫秒）。在途旧 patch 不得覆盖
+    // 宿主输入——否则会清掉刚键入的字符并关闭 AutoCompleteTextView 下拉。
+    private final Map<View, Long> pendingHostEdits = new IdentityHashMap<>();
     private View root;
     // Dialog 叠加层：窗口根（parentId 无父）出现时，用一个 wrapper 托管
     // Activity 根 + scrim + 窗口内容根；Dialog 对象本身不出 guest。
@@ -666,6 +702,9 @@ public final class UiBridgeMaterializer {
         View v;
         if (cls.endsWith("EditText")) {
             v = new EditText(context);
+        } else if (cls.endsWith("AutoCompleteTextView")) {
+            // guest lib 自动完成框：宿主真控件承载下拉建议（键入回灌同 EditText）。
+            v = new AutoCompleteTextView(context);
         } else if (cls.endsWith("CheckBox")) {
             v = new CheckBox(context);
         } else if (cls.endsWith("RadioButton")) {
@@ -680,6 +719,18 @@ public final class UiBridgeMaterializer {
             CheckedTextView checkedTextView = new CheckedTextView(context);
             checkedTextView.setCheckMarkDrawable(android.R.drawable.checkbox_on_background);
             v = checkedTextView;
+        } else if (cls.endsWith("Toolbar")) {
+            // guest lib Toolbar -> 宿主真 android.widget.Toolbar（原生 app bar：
+            // 标题/子标题/汉堡导航/溢出菜单/阴影）。
+            android.widget.Toolbar toolbar = new android.widget.Toolbar(context);
+            toolbar.setTitleTextColor(0xFF0E3731);
+            toolbar.setSubtitleTextColor(0xFF13866F);
+            toolbar.setElevation(dpToPx(4));
+            v = toolbar;
+        } else if (cls.endsWith("DatePicker")) {
+            v = new DatePicker(context);
+        } else if (cls.endsWith("TimePicker")) {
+            v = new TimePicker(context);
         } else if (cls.endsWith("ImageButton")) {
             // ImageButton 以图片出画（AOSP ImageButton extends ImageView）。
             v = new ImageView(context);
@@ -923,6 +974,177 @@ public final class UiBridgeMaterializer {
         }
     }
 
+    // ---- Toolbar / AutoCompleteTextView / DatePicker / TimePicker ----
+
+    /** 原生 app bar 重建：标题/子标题/汉堡导航按钮/溢出菜单。 */
+    private void applyToolbarProps(final android.widget.Toolbar tb, Node node) {
+        Prop title = node.prop(PROP_TEXT);
+        if (title != null && title.s != null) {
+            tb.setTitle(title.s);
+        }
+        Prop subtitle = node.prop(PROP_SUBTITLE);
+        if (subtitle != null && subtitle.s != null) {
+            tb.setSubtitle(subtitle.s);
+        }
+        Prop nav = node.prop(PROP_NAV_CLICK);
+        boolean navWanted = nav != null && nav.asInt() != 0;
+        if (navWanted) {
+            if (toolbarNavInstalled.add(tb)) {
+                tb.setNavigationIcon(new HamburgerDrawable(0xFF0E3731));
+                tb.setNavigationOnClickListener(vv -> {
+                    String status;
+                    try {
+                        status = NativeBridge.nativeDispatchViewObjectClick(node.objectId);
+                    } catch (Throwable t) {
+                        status = "error: " + t;
+                    }
+                    Log.i(TAG, "host toolbar nav objectId=" + node.objectId + " -> " + status);
+                });
+            }
+        } else if (toolbarNavInstalled.remove(tb)) {
+            tb.setNavigationIcon(null);
+        }
+        final int objectId = node.objectId;
+        if (toolbarMenuListenersInstalled.add(tb)) {
+            tb.setOnMenuItemClickListener(item -> {
+                String status;
+                try {
+                    status = NativeBridge.nativeDispatchViewMenuClick(objectId,
+                            item.getItemId());
+                } catch (Throwable t) {
+                    status = "error: " + t;
+                }
+                Log.i(TAG, "host toolbar menu objectId=" + objectId + " index="
+                        + item.getItemId() + " -> " + status);
+                return true;
+            });
+        }
+        Prop menuProp = node.prop(PROP_MENU_ITEMS);
+        String joined = menuProp != null && menuProp.s != null ? menuProp.s : "";
+        String prev = appliedToolbarMenu.get(tb);
+        if (!joined.equals(prev)) {
+            appliedToolbarMenu.put(tb, joined);
+            Menu hostMenu = tb.getMenu();
+            hostMenu.clear();
+            if (!joined.isEmpty()) {
+                String[] items = joined.split("\n");
+                for (int i = 0; i < items.length; i++) {
+                    hostMenu.add(0, i, i, items[i]);
+                }
+            }
+            Log.i(TAG, "toolbar menu rebuilt items=" + (joined.isEmpty() ? 0
+                    : joined.split("\n").length));
+        }
+    }
+
+    /** AutoCompleteTextView：建议项镜像 -> 宿主真控件下拉适配器。 */
+    private void applySuggestions(AutoCompleteTextView actv, Node node) {
+        Prop sugg = node.prop(PROP_SUGGESTIONS);
+        String joined = sugg != null && sugg.s != null ? sugg.s : "";
+        String prev = appliedSuggestions.get(actv);
+        if (joined.equals(prev)) return;
+        appliedSuggestions.put(actv, joined);
+        String[] items = joined.isEmpty() ? new String[0] : joined.split("\n");
+        actv.setAdapter(new ArrayAdapter<>(context,
+                android.R.layout.simple_dropdown_item_1line, items));
+        actv.setThreshold(1);
+    }
+
+    /** DatePicker：宿主日历改动回灌 guest（快照回写触发的回调抑制）。 */
+    private void applyDateProps(final DatePicker dp, Node node) {
+        final int objectId = node.objectId;
+        if (dateListenersInstalled.add(dp)) {
+            dp.setOnDateChangedListener((view, year, monthOfYear, dayOfMonth) -> {
+                if (suppressDateEvents.contains(dp)) return;
+                dispatchFields(objectId, year, monthOfYear, dayOfMonth);
+            });
+        }
+        Prop date = node.prop(PROP_DATE);
+        if (date != null && date.rect[0] > 1) {
+            suppressDateEvents.add(dp);
+            try {
+                dp.updateDate(date.rect[0], date.rect[1], date.rect[2]);
+            } catch (Throwable t) {
+                Log.w(TAG, "date apply failed", t);
+            } finally {
+                suppressDateEvents.remove(dp);
+            }
+        }
+    }
+
+    /** TimePicker：宿主时钟/输入改动回灌 guest。 */
+    private void applyTimeProps(final TimePicker tp, Node node) {
+        final int objectId = node.objectId;
+        if (timeListenersInstalled.add(tp)) {
+            tp.setOnTimeChangedListener((view, hourOfDay, minute) -> {
+                if (suppressTimeEvents.contains(tp)) return;
+                dispatchFields(objectId, hourOfDay, minute, 0);
+            });
+        }
+        Prop time = node.prop(PROP_TIME);
+        if (time != null && time.rect[0] >= 0 && time.rect[0] <= 23 && time.rect[1] >= 0
+                && time.rect[1] <= 59) {
+            suppressTimeEvents.add(tp);
+            try {
+                tp.setHour(time.rect[0]);
+                tp.setMinute(time.rect[1]);
+            } catch (Throwable t) {
+                Log.w(TAG, "time apply failed", t);
+            } finally {
+                suppressTimeEvents.remove(tp);
+            }
+        }
+    }
+
+    private void dispatchFields(int objectId, int a, int b, int c) {
+        String status;
+        try {
+            status = NativeBridge.nativeDispatchViewFields(objectId, a, b, c);
+        } catch (Throwable t) {
+            status = "error: " + t;
+        }
+        Log.i(TAG, "host fields objectId=" + objectId + " " + a + "," + b + "," + c
+                + " -> " + status);
+    }
+
+    /** 宿主原生 Toolbar 的汉堡导航图标（程序化绘制，避免依赖图标资源）。 */
+    private static final class HamburgerDrawable extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        HamburgerDrawable(int color) {
+            paint.setColor(color);
+        }
+
+        @Override
+        public void draw(Canvas canvas) {
+            Rect b = getBounds();
+            float barW = b.width() * 0.58f;
+            float left = b.left + (b.width() - barW) / 2f;
+            float barH = Math.max(2f, b.height() * 0.085f);
+            float gap = b.height() * 0.16f;
+            float cy = b.centerY();
+            for (int i = -1; i <= 1; i++) {
+                float y = cy + i * gap;
+                canvas.drawRect(left, y - barH / 2f, left + barW, y + barH / 2f, paint);
+            }
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            paint.setAlpha(alpha);
+        }
+
+        @Override
+        public void setColorFilter(ColorFilter cf) {
+            paint.setColorFilter(cf);
+        }
+
+        @Override
+        public int getOpacity() {
+            return PixelFormat.TRANSLUCENT;
+        }
+    }
+
     /** guest LayoutParams 宽高 -> 宿主布局约束。
      *  WRAP_CONTENT 有已测尺寸时优先用已测值（traversal 中断前的有效测量），
      *  否则交宿主按内容自量。 */
@@ -942,14 +1164,28 @@ public final class UiBridgeMaterializer {
             TextView tv = (TextView) v;
             Prop text = node.prop(PROP_TEXT);
             if (text != null && text.s != null) {
-                // 快照回写文本：抑制 TextWatcher，避免 host->guest 回声
-                // （用户键入仍正常回灌）。
-                suppressTextEvents.add(tv);
-                tv.setText(text.s);
-                suppressTextEvents.remove(tv);
+                // 文本未变不重设：AutoCompleteTextView 收到程序化 setText 会
+                // dismiss 下拉弹层（打字 → 回灌 → 快照回写把弹层秒关的根因）。
+                CharSequence current = tv.getText();
+                String cur = current != null ? current.toString() : "";
+                if (text.s.equals(cur)) {
+                    pendingHostEdits.remove(tv);  // guest 已追平宿主输入
+                } else {
+                    Long pendingAt = pendingHostEdits.get(tv);
+                    boolean hostEditing = pendingAt != null
+                            && android.os.SystemClock.uptimeMillis() - pendingAt < 1500;
+                    if (!hostEditing) {
+                        // 快照回写文本：抑制 TextWatcher，避免 host->guest 回声
+                        // （用户键入仍正常回灌）。
+                        pendingHostEdits.remove(tv);
+                        suppressTextEvents.add(tv);
+                        tv.setText(text.s);
+                        suppressTextEvents.remove(tv);
+                    }
+                }
             }
             Prop ts = node.prop(PROP_TEXT_SIZE);
-            if (ts != null && ts.f > 0) {
+            if (ts != null && ts.f > 0 && Math.abs(tv.getTextSize() - ts.f) > 0.5f) {
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, ts.f);
             }
             // 0 = guest 未显式设色（AOSP 落主题色）；不要用 0 覆盖宿主默认，
@@ -985,8 +1221,14 @@ public final class UiBridgeMaterializer {
         Prop bg = node.prop(PROP_BG_COLOR);
         if (bg != null && bg.asInt() != 0) {
             // 0 = guest 未设背景（AOSP no background）：保留宿主控件默认背景
-            // （Button/EditText 的原生外观），不被透明色抹掉。
-            v.setBackgroundColor(bg.asInt());
+            // （Button/EditText 的原生外观），不被透明色抹掉。同色不重设：
+            // 每帧 setBackgroundColor 会整体换 drawable 并触发 requestLayout。
+            Drawable currentBg = v.getBackground();
+            int currentColor =
+                    currentBg instanceof ColorDrawable ? ((ColorDrawable) currentBg).getColor() : 0;
+            if (currentColor != bg.asInt()) {
+                v.setBackgroundColor(bg.asInt());
+            }
         }
         if (v instanceof ProgressBar) {
             Prop progress = node.prop(PROP_PROGRESS);
@@ -1026,6 +1268,18 @@ public final class UiBridgeMaterializer {
                         open.asInt() != 0);
             }
         }
+        if (v instanceof android.widget.Toolbar) {
+            applyToolbarProps((android.widget.Toolbar) v, node);
+        }
+        if (v instanceof AutoCompleteTextView) {
+            applySuggestions((AutoCompleteTextView) v, node);
+        }
+        if (v instanceof DatePicker) {
+            applyDateProps((DatePicker) v, node);
+        }
+        if (v instanceof TimePicker) {
+            applyTimeProps((TimePicker) v, node);
+        }
         if (v instanceof VideoView) {
             applyVideoProps((VideoView) v, node);
         }
@@ -1036,7 +1290,10 @@ public final class UiBridgeMaterializer {
             if (o != null) ((HostLinearLayout) v).orientationProp = o.asInt();
         }
         Prop pad = node.prop(PROP_PADDING);
-        if (pad != null) {
+        if (pad != null
+                && (v.getPaddingLeft() != pad.rect[0] || v.getPaddingTop() != pad.rect[1]
+                        || v.getPaddingRight() != pad.rect[2]
+                        || v.getPaddingBottom() != pad.rect[3])) {
             v.setPadding(pad.rect[0], pad.rect[1], pad.rect[2], pad.rect[3]);
         }
         Prop vis = node.prop(PROP_VISIBILITY);
@@ -1045,11 +1302,13 @@ public final class UiBridgeMaterializer {
         // alpha≈0 通常来自入场动画起始帧；宿主不跑 guest 动画器，直接采用 0
         // 会让整块内容永久透明（实测首帧只剩窗口背景灰块）。基础 UI 口径：
         // 0 视作"未开始动画"，按可见物化；非零沿用 guest 值。
-        if (alpha != null && alpha.f > 0.01f) {
+        if (alpha != null && alpha.f > 0.01f
+                && Math.abs(v.getAlpha() - alpha.f) > 0.001f) {
             v.setAlpha(Math.max(0f, Math.min(alpha.f, 1f)));
         }
         Prop tr = node.prop(PROP_TRANSLATION);
-        if (tr != null) {
+        if (tr != null && (v.getTranslationX() != tr.rect[0]
+                || v.getTranslationY() != tr.rect[1])) {
             v.setTranslationX(tr.rect[0]);
             v.setTranslationY(tr.rect[1]);
         }
@@ -1126,8 +1385,12 @@ public final class UiBridgeMaterializer {
             // AOSP 命中语义：没有 click listener 的 View 不消费触摸。此前对
             // 每个物化 View 都 setClickable(true)，导致全屏透明 overlay_container
             // 与行内 TextView 抢走点击并注入错误节点（重试/底部导航全失效）。
-            v.setOnClickListener(null);
-            v.setClickable(false);
+            // 只在状态确实需要复位时才动（patch 每帧会走到这里；无谓的
+            // setOnClickListener/setClickable 会触发视图层级副作用）。
+            if (v.isClickable() || v.hasOnClickListeners()) {
+                v.setOnClickListener(null);
+                v.setClickable(false);
+            }
             return;
         }
         v.setClickable(true);
@@ -1165,6 +1428,7 @@ public final class UiBridgeMaterializer {
             public void afterTextChanged(Editable s) {
                 if (suppressTextEvents.contains(v)) return;
                 String text = s != null ? s.toString() : "";
+                pendingHostEdits.put(v, android.os.SystemClock.uptimeMillis());
                 String status;
                 try {
                     status = NativeBridge.nativeDispatchViewText(objectId, text);
@@ -1381,18 +1645,26 @@ public final class UiBridgeMaterializer {
                     applyProps(v, node);
                     wireClick(v, node);
                     // bounds 变更：有几何 -> guest 绝对布局；无几何 -> 宿主布局。
+                    // 仅当布局参数实际变化才 setLayoutParams（每帧无谓 requestLayout
+                    // 会让 AutoCompleteTextView 下拉等浮层随全局布局反复重排）。
                     Prop bounds = node.prop(PROP_BOUNDS);
                     if (bounds != null && v.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
                         ViewGroup.MarginLayoutParams lp =
                                 (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+                        int nw;
+                        int nh;
+                        int nl;
+                        int nt;
+                        int nr = lp.rightMargin;
+                        int nb = lp.bottomMargin;
                         int w = bounds.rect[2] - bounds.rect[0];
                         int h = bounds.rect[3] - bounds.rect[1];
                         if (w > 0 && h > 0) {
                             // 父容器相对坐标：bounds.left/top 即宿主 margin。
-                            lp.leftMargin = bounds.rect[0];
-                            lp.topMargin = bounds.rect[1];
-                            lp.width = w;
-                            lp.height = h;
+                            nl = bounds.rect[0];
+                            nt = bounds.rect[1];
+                            nw = w;
+                            nh = h;
                             absoluteViews.put(v, Boolean.TRUE);
                         } else {
                             Prop glp = node.prop(PROP_LAYOUT_PARAMS);
@@ -1408,22 +1680,32 @@ public final class UiBridgeMaterializer {
                                     && v.getParent() instanceof HostLinearLayout;
                             if (weightedLinear) childWeight.put(v, wv);
                             else childWeight.remove(v);
-                            lp.width = weightedLinear && gw == 0 ? 0 : lpDimension(gw, mw);
-                            lp.height = weightedLinear && gh == 0 ? 0 : lpDimension(gh, mh);
+                            nw = weightedLinear && gw == 0 ? 0 : lpDimension(gw, mw);
+                            nh = weightedLinear && gh == 0 ? 0 : lpDimension(gh, mh);
                             if (margins != null) {
-                                lp.leftMargin = Math.max(margins.rect[0], 0);
-                                lp.topMargin = Math.max(margins.rect[1], 0);
-                                lp.rightMargin = Math.max(margins.rect[2], 0);
-                                lp.bottomMargin = Math.max(margins.rect[3], 0);
+                                nl = Math.max(margins.rect[0], 0);
+                                nt = Math.max(margins.rect[1], 0);
+                                nr = Math.max(margins.rect[2], 0);
+                                nb = Math.max(margins.rect[3], 0);
                             } else {
-                                lp.leftMargin = 0;
-                                lp.topMargin = 0;
+                                nl = 0;
+                                nt = 0;
                             }
                             Prop grav = node.prop(PROP_LAYOUT_GRAVITY);
                             if (grav != null) childGravity.put(v, grav.asInt());
                             absoluteViews.remove(v);
                         }
-                        v.setLayoutParams(lp);
+                        if (lp.width != nw || lp.height != nh || lp.leftMargin != nl
+                                || lp.topMargin != nt || lp.rightMargin != nr
+                                || lp.bottomMargin != nb) {
+                            lp.width = nw;
+                            lp.height = nh;
+                            lp.leftMargin = nl;
+                            lp.topMargin = nt;
+                            lp.rightMargin = nr;
+                            lp.bottomMargin = nb;
+                            v.setLayoutParams(lp);
+                        }
                     }
                     break;
                 }

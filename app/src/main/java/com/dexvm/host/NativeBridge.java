@@ -137,6 +137,12 @@ public final class NativeBridge {
     /** DrawerLayout 开合回灌：host 手势开合 -> objectId+open -> guest DrawerListener。 */
     public static native String nativeDispatchViewDrawer(int objectId, boolean open);
 
+    /** Toolbar 菜单项点击回灌：host 真 Toolbar 溢出菜单 -> objectId+index。 */
+    public static native String nativeDispatchViewMenuClick(int objectId, int itemIndex);
+
+    /** DatePicker/TimePicker 字段回灌：objectId + (a,b,c)（年月日 / 时分）。 */
+    public static native String nativeDispatchViewFields(int objectId, int a, int b, int c);
+
     /**
      * M3 加固考卷设备化：exam_smoke 同款引导 + LifecycleDriver 驱动 + 逐 phase/缺口
      * 诊断；System.loadLibrary 设备钩子接真 loader（APK 内 lib/&lt;abi&gt;/*.so 解压到

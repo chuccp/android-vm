@@ -2282,6 +2282,14 @@ bool IsLiveClickEntry(const ClickEntry& e) {
 
 namespace {
 
+// 可派发点击语义 = 点击监听器 或 工具栏导航监听器（Toolbar.performClick 覆写
+// 会把导航点击派发到 setNavigationOnClickListener 的 listener）。
+bool HasGuestDispatchListener(VObject* view) {
+  if (HasGuestClickListener(view)) return true;
+  VField* nav = FindInstanceField(view->klass, "mNavigationClickListener");
+  return nav != nullptr && GetRefField(view, nav->offset) != nullptr;
+}
+
 // 命中 guest view 后按 AOSP 触摸语义派发：落到不可点击子 View 的触摸会被
 // 父链上可点击的祖先消费（子 View 不消费 DOWN）。宿主快照节点可能只是行内
 // 文本（如“重新加载”），监听器挂在容器行上；命中节点无监听时沿 mParent
@@ -2289,13 +2297,13 @@ namespace {
 std::string DispatchGuestClick(VMState* vm_state, VObject* target, const std::string& key) {
   VObject* click_target = target;
   for (int depth = 0; click_target != nullptr && depth < 64 &&
-                      !HasGuestClickListener(click_target);
+                      !HasGuestDispatchListener(click_target);
        depth++) {
     VField* pf = FindInstanceField(click_target->klass, "mParent");
     click_target =
         pf != nullptr ? reinterpret_cast<VObject*>(GetRefField(click_target, pf->offset)) : nullptr;
   }
-  if (click_target == nullptr || !HasGuestClickListener(click_target)) {
+  if (click_target == nullptr || !HasGuestDispatchListener(click_target)) {
     return "dispatched " + key + " listener=0";
   }
   // AOSP 触摸口径：performClick()——CompoundButton 族在覆写里 toggle 并通知
@@ -2524,6 +2532,43 @@ std::string InjectGuestObjectDrawer(VMState* vm_state, uint32_t object_id, bool 
   }
   return "dispatched objectId=" + std::to_string(object_id) + " drawer-open=" +
          (open ? "1" : "0");
+}
+
+std::string InjectGuestObjectMenuClick(VMState* vm_state, uint32_t object_id, int32_t index) {
+  if (vm_state == nullptr) {
+    return "channel-ok objectId=" + std::to_string(object_id) + " guest-session=absent";
+  }
+  VObject* target = FindLiveViewByObjectId(object_id);
+  if (target == nullptr) return "no-view objectId=" + std::to_string(object_id);
+  Value arg{};
+  arg.i = index;
+  if (!CallVirtual(*vm_state, target, "onHostMenuItemClick", {"I"}, "V", &arg, 1, nullptr)) {
+    if (vm_state->HasPendingException()) vm_state->ClearException();
+    return "dispatch-error objectId=" + std::to_string(object_id) + " index=" +
+           std::to_string(index);
+  }
+  return "dispatched objectId=" + std::to_string(object_id) + " menu-index=" +
+         std::to_string(index);
+}
+
+std::string InjectGuestObjectFields(VMState* vm_state, uint32_t object_id, int32_t a,
+                                    int32_t b, int32_t c) {
+  if (vm_state == nullptr) {
+    return "channel-ok objectId=" + std::to_string(object_id) + " guest-session=absent";
+  }
+  VObject* target = FindLiveViewByObjectId(object_id);
+  if (target == nullptr) return "no-view objectId=" + std::to_string(object_id);
+  Value args[3] = {};
+  args[0].i = a;
+  args[1].i = b;
+  args[2].i = c;
+  if (!CallVirtual(*vm_state, target, "onHostFieldsChanged", {"I", "I", "I"}, "V", args, 3,
+                   nullptr)) {
+    if (vm_state->HasPendingException()) vm_state->ClearException();
+    return "dispatch-error objectId=" + std::to_string(object_id);
+  }
+  return "dispatched objectId=" + std::to_string(object_id) + " fields=" + std::to_string(a) +
+         "," + std::to_string(b) + "," + std::to_string(c);
 }
 
 }  // namespace dexvm::bridge

@@ -2477,8 +2477,16 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                        });
     AddIntrinsicMethod(view, "resolveSize", {"I", "I"}, "I", stat, ViewResolveSize);
     AddIntrinsicMethod(view, "resolveSizeAndState", {"I", "I", "I"}, "I", stat, ViewResolveSize);
-    MakeClass(linker, &all, "Landroid/view/View$OnClickListener;", object, 0,
-              kAccPublic | kAccInterface | kAccAbstract);
+    VClass* click_listener = MakeClass(linker, &all, "Landroid/view/View$OnClickListener;",
+                                       object, 0, kAccPublic | kAccInterface | kAccAbstract);
+    if (click_listener != nullptr) {
+      // onClick 接口骨架：guest 字节码直接 invoke-interface 派发
+      // listener.onClick（lib 控件覆写 performClick 等）需要可解析的接口方法；
+      // 只有 native 派发（CallVirtual）时不声明也能跑，但 invoke-interface
+      // 会因接口无该方法报 NoSuchMethodError。
+      AddMethodSkeleton(click_listener, "onClick", {"Landroid/view/View;"}, "V",
+                        pub | kAccAbstract);
+    }
     // View.OnCreateContextMenuListener：androidx.fragment.app.Fragment 等实现的
     // 公开内嵌接口（缺注册即 interface not found -> Fragment 链接失败）。
     VClass* ctx_menu_listener = MakeClass(

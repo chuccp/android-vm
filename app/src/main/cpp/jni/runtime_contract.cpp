@@ -350,6 +350,12 @@ struct ApkSessionState {
   int32_t pending_rating_milli = 0;   // rating * 1000（避免浮点线格式）
   uint32_t pending_drawer_object = 0; // DrawerLayout 开合回灌目标（0 = 无）
   int32_t pending_drawer_open = 0;    // 1 开 / 0 合
+  uint32_t pending_menu_object = 0;   // Toolbar 菜单项点击回灌目标（0 = 无）
+  int32_t pending_menu_index = 0;     // 菜单项序号
+  uint32_t pending_fields_object = 0; // DatePicker/TimePicker 字段回灌目标（0 = 无）
+  int32_t pending_fields_a = 0;
+  int32_t pending_fields_b = 0;
+  int32_t pending_fields_c = 0;
   std::deque<std::vector<uint8_t>> frames;  // UIBridge envelope 有序队列（full+patch）
 };
 ApkSessionState g_session_state;
@@ -360,7 +366,8 @@ bool SessionWakePred(void* arg) {
   return s->stop_requested || s->pending_click >= 0 || s->pending_object_click != 0 ||
          s->pending_long_object != 0 || s->pending_text_object != 0 ||
          s->pending_seek_object != 0 || s->pending_rating_object != 0 ||
-         s->pending_drawer_object != 0;
+         s->pending_drawer_object != 0 || s->pending_menu_object != 0 ||
+         s->pending_fields_object != 0;
 }
 
 // M4.1/M4.2 设备化入口：引导 VM 跑目标 APK 全生命周期链 + 首帧管线
@@ -2821,6 +2828,12 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
           g_session_state.pending_rating_milli = 0;
           g_session_state.pending_drawer_object = 0;
           g_session_state.pending_drawer_open = 0;
+          g_session_state.pending_menu_object = 0;
+          g_session_state.pending_menu_index = 0;
+          g_session_state.pending_fields_object = 0;
+          g_session_state.pending_fields_a = 0;
+          g_session_state.pending_fields_b = 0;
+          g_session_state.pending_fields_c = 0;
           g_session_state.frames.clear();
           // 首帧全量 envelope 入队（宿主从 full 基线开始物化）
           g_session_state.frames.push_back(run->ui->last_view_tree());
@@ -2844,6 +2857,12 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
           int32_t rating_milli = 0;
           uint32_t drawer_object = 0;
           int32_t drawer_open = 0;
+          uint32_t menu_object = 0;
+          int32_t menu_index = 0;
+          uint32_t fields_object = 0;
+          int32_t fields_a = 0;
+          int32_t fields_b = 0;
+          int32_t fields_c = 0;
           bool stop = false;
           {
             std::lock_guard<std::mutex> lk(g_session_state.mu);
@@ -2859,6 +2878,12 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             rating_milli = g_session_state.pending_rating_milli;
             drawer_object = g_session_state.pending_drawer_object;
             drawer_open = g_session_state.pending_drawer_open;
+            menu_object = g_session_state.pending_menu_object;
+            menu_index = g_session_state.pending_menu_index;
+            fields_object = g_session_state.pending_fields_object;
+            fields_a = g_session_state.pending_fields_a;
+            fields_b = g_session_state.pending_fields_b;
+            fields_c = g_session_state.pending_fields_c;
             g_session_state.pending_click = -1;
             g_session_state.pending_object_click = 0;
             g_session_state.pending_long_object = 0;
@@ -2870,6 +2895,12 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             g_session_state.pending_rating_milli = 0;
             g_session_state.pending_drawer_object = 0;
             g_session_state.pending_drawer_open = 0;
+            g_session_state.pending_menu_object = 0;
+            g_session_state.pending_menu_index = 0;
+            g_session_state.pending_fields_object = 0;
+            g_session_state.pending_fields_a = 0;
+            g_session_state.pending_fields_b = 0;
+            g_session_state.pending_fields_c = 0;
             stop = g_session_state.stop_requested;
           }
           if (object_click != 0) {
@@ -2906,6 +2937,18 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             std::string status = dexvm::bridge::InjectGuestObjectDrawer(
                 &s, drawer_object, drawer_open != 0);
             ProgressAppend("session drawer objectId=" + std::to_string(drawer_object) + ": " +
+                           status);
+          }
+          if (menu_object != 0) {
+            std::string status =
+                dexvm::bridge::InjectGuestObjectMenuClick(&s, menu_object, menu_index);
+            ProgressAppend("session menu objectId=" + std::to_string(menu_object) + ": " +
+                           status);
+          }
+          if (fields_object != 0) {
+            std::string status = dexvm::bridge::InjectGuestObjectFields(
+                &s, fields_object, fields_a, fields_b, fields_c);
+            ProgressAppend("session fields objectId=" + std::to_string(fields_object) + ": " +
                            status);
           }
           if (stop) break;
@@ -5234,6 +5277,30 @@ extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueDrawer
   if (!g_session_state.active) return false;
   g_session_state.pending_drawer_object = object_id;
   g_session_state.pending_drawer_open = open;
+  return true;
+}
+
+// Toolbar 菜单项点击回灌入队（index = 菜单项序号）。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueMenuClick(
+    uint32_t object_id, int32_t index) {
+  if (object_id == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_menu_object = object_id;
+  g_session_state.pending_menu_index = index;
+  return true;
+}
+
+// DatePicker/TimePicker 字段回灌入队（a,b,c = 年月日 / 时分）。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueFields(
+    uint32_t object_id, int32_t a, int32_t b, int32_t c) {
+  if (object_id == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_fields_object = object_id;
+  g_session_state.pending_fields_a = a;
+  g_session_state.pending_fields_b = b;
+  g_session_state.pending_fields_c = c;
   return true;
 }
 

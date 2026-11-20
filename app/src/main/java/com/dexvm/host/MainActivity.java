@@ -732,7 +732,8 @@ public class MainActivity extends Activity {
         } else {
             showLogContent();
         }
-        final Runnable scroll = () -> runLogScroll.fullScroll(View.FOCUS_DOWN);
+        final Runnable scroll = () ->
+                runLogScroll.scrollTo(0, runLogView.getBottom());
         handler.post(scroll);
     }
 
@@ -899,7 +900,11 @@ public class MainActivity extends Activity {
                         >= runLogView.getHeight() - 24;
                 runLogView.setText(progress);
                 if (atBottom) {
-                    runLogScroll.post(() -> runLogScroll.fullScroll(View.FOCUS_DOWN));
+                    // 不要用 fullScroll(FOCUS_DOWN)：它会跨窗口 focusSearch 并
+                    // requestFocus，把 guest 输入框/下拉的焦点每 400ms 抢走一次
+                    // （EditText 打不进字、AutoCompleteTextView 下拉秒关的根因）。
+                    runLogScroll.post(() ->
+                            runLogScroll.scrollTo(0, runLogView.getBottom()));
                 }
             }
         } catch (Throwable ignored) {

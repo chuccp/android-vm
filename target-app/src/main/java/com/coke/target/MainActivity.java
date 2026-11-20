@@ -19,9 +19,11 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CheckedTextView;
+import android.widget.DatePicker;
 import android.widget.EditText;
 import android.widget.GridView;
 import android.widget.ImageButton;
@@ -36,8 +38,10 @@ import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.TimePicker;
 import android.widget.Toast;
 import android.widget.ToggleButton;
+import android.widget.Toolbar;
 import android.widget.VideoView;
 
 import java.util.concurrent.TimeUnit;
@@ -229,9 +233,24 @@ public final class MainActivity extends Activity {
         final androidx.drawerlayout.widget.DrawerLayout drawer =
                 (androidx.drawerlayout.widget.DrawerLayout) findViewById(
                         R.id.runtime_drawer_layout);
-        TextView menu = (TextView) findViewById(R.id.runtime_menu);
-        if (menu != null && drawer != null) {
-            menu.setOnClickListener(view -> drawer.openDrawer(Gravity.START));
+        Toolbar toolbar = (Toolbar) findViewById(R.id.runtime_toolbar);
+        if (toolbar != null) {
+            toolbar.setTitle(getString(R.string.toolbar_title));
+            toolbar.setSubtitle(getString(R.string.menu_basics));
+            toolbar.setOnMenuItemClickListener(item -> {
+                String title = item.getTitle() != null ? item.getTitle().toString() : "";
+                Log.i("DexVmTarget", "toolbar menu click: " + title);
+                if (capabilityStatus != null) {
+                    capabilityStatus.setText("Toolbar menu: " + title);
+                }
+                return true;
+            });
+            toolbar.getMenu().add(android.view.Menu.NONE, 0, 0, "About");
+            toolbar.getMenu().add(android.view.Menu.NONE, 1, 1, "Refresh");
+            if (drawer != null) {
+                toolbar.setNavigationOnClickListener(
+                        view -> drawer.openDrawer(Gravity.START));
+            }
         }
         if (drawer != null) {
             drawer.addDrawerListener(
@@ -336,9 +355,9 @@ public final class MainActivity extends Activity {
                         ? android.view.View.VISIBLE : android.view.View.GONE);
             }
         }
-        TextView sectionTitle = (TextView) findViewById(R.id.runtime_section_title);
-        if (sectionTitle != null) {
-            sectionTitle.setText(title);
+        Toolbar toolbar = (Toolbar) findViewById(R.id.runtime_toolbar);
+        if (toolbar != null) {
+            toolbar.setSubtitle(title);
         }
         android.view.View content = findViewById(R.id.runtime_content);
         if (content instanceof android.widget.ScrollView) {
@@ -378,6 +397,32 @@ public final class MainActivity extends Activity {
                 capabilityStatus.setText("Long click on widget header");
                 return true;
             });
+        }
+
+        AutoCompleteTextView autoComplete =
+                (AutoCompleteTextView) findViewById(R.id.runtime_autocomplete);
+        if (autoComplete != null) {
+            ArrayAdapter<String> acAdapter = new ArrayAdapter<String>(this, 0,
+                    new String[] {"Apple", "Banana", "Cherry", "Grape", "Mango"});
+            autoComplete.setAdapter(acAdapter);
+            autoComplete.setThreshold(1);
+            autoComplete.setOnItemClickListener((parent, view, position, id) ->
+                    capabilityStatus.setText("AutoComplete pick=" + position));
+        }
+
+        DatePicker datePicker = (DatePicker) findViewById(R.id.runtime_datepicker);
+        if (datePicker != null) {
+            datePicker.init(2026, 10, 20, (view, year, month, day) ->
+                    capabilityStatus.setText("DatePicker " + year + "-" + (month + 1)
+                            + "-" + day));
+        }
+
+        TimePicker timePicker = (TimePicker) findViewById(R.id.runtime_timepicker);
+        if (timePicker != null) {
+            timePicker.setHour(9);
+            timePicker.setMinute(30);
+            timePicker.setOnTimeChangedListener((view, hour, minute) ->
+                    capabilityStatus.setText("TimePicker " + hour + ":" + minute));
         }
 
         ListView listView = (ListView) findViewById(R.id.runtime_listview);

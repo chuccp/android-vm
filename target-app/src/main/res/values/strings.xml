@@ -2,6 +2,7 @@
 <resources>
     <string name="xml_title">XML Runtime Layout</string>
     <string name="xml_gallery_title">DexVM UI Gallery</string>
+    <string name="toolbar_title">DexVM Gallery</string>
     <string name="xml_gallery_subtitle">UI showcase on the guest DEX VM</string>
     <string name="menu_open">☰ Menu</string>
     <string name="menu_sections">Sections</string>
@@ -19,6 +20,9 @@
     <string name="section_status">Runtime status</string>
     <string name="label_seekbar">SeekBar</string>
     <string name="label_ratingbar">RatingBar</string>
+    <string name="label_datepicker">DatePicker</string>
+    <string name="label_timepicker">TimePicker</string>
+    <string name="xml_autocomplete">AutoCompleteTextView</string>
     <string name="label_listview">ListView</string>
     <string name="label_spinner">Spinner</string>
     <string name="label_gridview">GridView</string>
