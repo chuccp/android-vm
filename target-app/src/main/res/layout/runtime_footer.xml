@@ -82,6 +82,20 @@
         android:layout_marginTop="@dimen/runtime_gap"
         android:text="@string/xml_dialog_action" />
 
+    <Button
+        android:id="@+id/runtime_alert_action"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:text="@string/xml_alert_action" />
+
+    <Button
+        android:id="@+id/runtime_toast_action"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/runtime_gap"
+        android:text="@string/xml_toast_action" />
+
     <CheckBox
         android:id="@+id/runtime_checkbox"
         android:layout_width="match_parent"

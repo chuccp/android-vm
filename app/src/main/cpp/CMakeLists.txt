@@ -58,6 +58,7 @@ add_library(dexvm_runtime STATIC
   core/sensor_bridge.cc
   core/framework_sensor.cc
   core/notification_bridge.cc
+  core/toast_bridge.cc
   core/framework_notification.cc
   core/framework_builtins.cc
   core/framework_dialog.cc

@@ -50,6 +50,12 @@ public final class NativeBridge {
      */
     public static native byte[] nativeNotificationTake();
 
+    /**
+     * 宿主 Toast 桥：阻塞取一条 guest Toast 请求（200ms 超时返回 null；
+     * 小端线格式见 core/toast_bridge.h）。由 ToastBridge 分发线程调用。
+     */
+    public static native byte[] nativeToastTake();
+
     /** 当前运行进度日志快照（VM/考卷线程写入；UI 轮询显示，线程安全）。 */
     public static native String nativeGetRunProgress();
 

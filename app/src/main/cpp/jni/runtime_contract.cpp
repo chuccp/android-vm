@@ -51,6 +51,7 @@
 #include "core/interpreter.h"
 #include "core/intrinsic.h"
 #include "core/notification_bridge.h"
+#include "core/toast_bridge.h"
 #include "core/sensor_bridge.h"
 #include "core/tls_bridge.h"
 #include "dex/dex_file.h"
@@ -189,6 +190,19 @@ jbyteArray NativeNotificationTake(JNIEnv* env, jclass) {
   dexvm::runtime::HostNotificationRequest req;
   if (!dexvm::runtime::TakeHostNotificationRequest(&req, 200)) return nullptr;
   std::string bytes = dexvm::runtime::EncodeHostNotificationRequest(req);
+  jbyteArray arr = env->functions->NewByteArray(env, static_cast<jsize>(bytes.size()));
+  if (arr != nullptr) {
+    env->functions->SetByteArrayRegion(env, arr, 0, static_cast<jsize>(bytes.size()),
+                                       reinterpret_cast<const jbyte*>(bytes.data()));
+  }
+  return arr;
+}
+
+// 宿主 Toast 桥：ToastBridge.java 分发线程阻塞取一条请求（200ms 超时返 null）。
+jbyteArray NativeToastTake(JNIEnv* env, jclass) {
+  dexvm::runtime::HostToastRequest req;
+  if (!dexvm::runtime::TakeHostToastRequest(&req, 200)) return nullptr;
+  std::string bytes = dexvm::runtime::EncodeHostToastRequest(req);
   jbyteArray arr = env->functions->NewByteArray(env, static_cast<jsize>(bytes.size()));
   if (arr != nullptr) {
     env->functions->SetByteArrayRegion(env, arr, 0, static_cast<jsize>(bytes.size()),
@@ -5052,6 +5066,7 @@ const JNINativeMethod kMethods[] = {
      reinterpret_cast<void*>(NativeSensorSetList)},
     {"nativeSensorPush", "(I[FJ)V", reinterpret_cast<void*>(NativeSensorPush)},
     {"nativeNotificationTake", "()[B", reinterpret_cast<void*>(NativeNotificationTake)},
+    {"nativeToastTake", "()[B", reinterpret_cast<void*>(NativeToastTake)},
     {"nativeRunTlsSelfTest", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(NativeRunTlsSelfTest)},
     {"nativeRunExam", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",

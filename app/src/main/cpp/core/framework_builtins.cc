@@ -32,6 +32,7 @@
 #include "core/interpreter.h"
 #include "core/framework_builtins_internal.h"
 #include "core/framework_dialog.h"
+#include "core/toast_bridge.h"
 
 namespace dexvm::runtime {
 
@@ -347,8 +348,8 @@ Value ReturnNull(VMState& state, VObject* self, const Value* args, size_t n, boo
   return Value{};
 }
 
-// android.widget.Toast（宿主无 UI 通道：文案/时长存实例，show/cancel 空转；
-// 应用逻辑可继续，视觉提示归宿主诊断面）。
+// android.widget.Toast（宿主 Toast 桥：文案/时长入队，宿主 ToastBridge 用
+// 真 Toast.makeText().show() 呈现）。
 Value ToastMakeText(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   (void)self;
   *ok = true;
@@ -383,11 +384,60 @@ Value ToastMakeTextRes(VMState& state, VObject* self, const Value* args, size_t 
   return r;
 }
 
-Value ToastReturnSelf(VMState& state, VObject* self, const Value*, size_t, bool* ok) {
+// Toast.show()：文案/时长入宿主 Toast 桥队列（宿主 ToastBridge 用真
+// Toast.makeText().show() 呈现；guest 侧 show/cancel 不再空转）。
+Value ToastShow(VMState& state, VObject* self, const Value*, size_t, bool* ok) {
+  (void)state;
+  *ok = true;
+  HostToastRequest req;
+  if (self != nullptr) {
+    if (VField* f = FindInstanceField(self->klass, "mText")) {
+      ObjHeader* text = GetRefField(self, f->offset);
+      if (text != nullptr) req.text = static_cast<VString*>(text)->ToModifiedUtf8();
+    }
+    if (VField* f = FindInstanceField(self->klass, "mDuration")) {
+      req.duration = GetIField(self, f->offset);
+    }
+  }
+  PushHostToastRequest(std::move(req));
+  return Value{};
+}
+
+// Toast.setText(CharSequence)：更新实例文案（show 时读取）。
+Value ToastSetText(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  (void)state;
+  *ok = true;
+  if (self != nullptr && n > 0) {
+    if (VField* f = FindInstanceField(self->klass, "mText")) {
+      SetRefField(self, f->offset, args[0].ref);
+    }
+  }
+  return Value{};
+}
+
+// Toast.setDuration(int)：更新实例时长并返回 this（AOSP 链式语义）。
+Value ToastSetDuration(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   (void)state;
   *ok = true;
   Value r{};
   r.ref = self;
+  if (self != nullptr && n > 0) {
+    if (VField* f = FindInstanceField(self->klass, "mDuration")) {
+      SetIField(self, f->offset, args[0].i);
+    }
+  }
+  return r;
+}
+
+Value ToastGetDuration(VMState& state, VObject* self, const Value*, size_t, bool* ok) {
+  (void)state;
+  *ok = true;
+  Value r{};
+  if (self != nullptr) {
+    if (VField* f = FindInstanceField(self->klass, "mDuration")) {
+      r.i = GetIField(self, f->offset);
+    }
+  }
   return r;
 }
 
@@ -2972,14 +3022,16 @@ void RegisterFrameworkBuiltins(ClassLinker* linker) {
                          "Landroid/widget/Toast;", pub | kAccStatic, ToastMakeText);
       AddIntrinsicMethod(toast, "makeText", {"Landroid/content/Context;", "I", "I"},
                          "Landroid/widget/Toast;", pub | kAccStatic, ToastMakeTextRes);
-      AddIntrinsicMethod(toast, "show", {}, "V", pub, NoOp);
+      AddIntrinsicMethod(toast, "show", {}, "V", pub, ToastShow);
       AddIntrinsicMethod(toast, "cancel", {}, "V", pub, NoOp);
       AddIntrinsicMethod(toast, "setDuration", {"I"}, "Landroid/widget/Toast;", pub,
-                         ToastReturnSelf);
+                         ToastSetDuration);
+      AddIntrinsicMethod(toast, "setText", {"Ljava/lang/CharSequence;"}, "V", pub,
+                         ToastSetText);
       AddIntrinsicMethod(toast, "setGravity", {"I", "I", "I"}, "V", pub, NoOp);
       AddIntrinsicMethod(toast, "setView", {"Landroid/view/View;"}, "V", pub, NoOp);
       AddIntrinsicMethod(toast, "getView", {}, "Landroid/view/View;", pub, ReturnNull);
-      AddIntrinsicMethod(toast, "getDuration", {}, "I", pub, ReturnZeroInt);
+      AddIntrinsicMethod(toast, "getDuration", {}, "I", pub, ToastGetDuration);
     }
     (void)view_group;
     VClass* linear_layout =

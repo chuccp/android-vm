@@ -639,6 +639,11 @@ public class MainActivity extends Activity {
             NotificationBridge.start(this);
         } catch (Throwable ignored) {
         }
+        // 宿主 Toast 桥：guest Toast.show() -> 宿主真 Toast 提示。
+        try {
+            ToastBridge.start(this);
+        } catch (Throwable ignored) {
+        }
         // 等 guestSlot 尺寸收敛后按内容区宽高比确定 guest 逻辑窗口高度：
         // 固定 540x960 铺到 4xx x 9xx 的内容区会按 x/y 独立缩放，字体被
         // 纵向拉长。窗口比例 = 内容区比例后才能等比铺满。

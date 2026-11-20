@@ -1,6 +1,7 @@
 package com.coke.target;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
@@ -29,6 +30,7 @@ import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.ToggleButton;
 import android.widget.VideoView;
 
@@ -294,6 +296,19 @@ public final class MainActivity extends Activity {
         if (dialogButton != null) {
             dialogButton.setOnClickListener(view -> showGuestDialog());
         }
+
+        Button alertButton = (Button) findViewById(R.id.runtime_alert_action);
+        if (alertButton != null) {
+            alertButton.setOnClickListener(view -> showGuestAlertDialog());
+        }
+
+        Button toastButton = (Button) findViewById(R.id.runtime_toast_action);
+        if (toastButton != null) {
+            toastButton.setOnClickListener(view -> {
+                Toast.makeText(this, "Toast from guest VM", Toast.LENGTH_SHORT).show();
+                capabilityStatus.setText("Toast shown");
+            });
+        }
     }
 
     /**
@@ -355,6 +370,19 @@ public final class MainActivity extends Activity {
         dialog.setContentView(column);
         dialog.show();
         capabilityStatus.setText("Dialog shown");
+    }
+
+    /** lib AlertDialog.Builder：标题/正文/按钮行经叠加根物化为宿主弹窗。 */
+    private void showGuestAlertDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("VM AlertDialog")
+                .setMessage("AlertDialog bridged from the guest DEX VM.")
+                .setPositiveButton("OK", (dialog, which) ->
+                        capabilityStatus.setText("AlertDialog OK"))
+                .setNegativeButton("Cancel", (dialog, which) ->
+                        capabilityStatus.setText("AlertDialog Cancel"))
+                .show();
+        capabilityStatus.setText("AlertDialog shown");
     }
 
     private void wireRadio(RadioGroup group, int id) {
