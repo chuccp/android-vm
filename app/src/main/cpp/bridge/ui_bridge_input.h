@@ -49,6 +49,18 @@ std::string InjectGuestObjectText(dexvm::runtime::VMState* vm_state, uint32_t ob
 std::string InjectGuestObjectSeek(dexvm::runtime::VMState* vm_state, uint32_t object_id,
                                   int32_t progress, int32_t phase);
 
+// RatingBar 拖星回灌：objectId + milliRating -> guest onHostRatingChanged
+// （fromUser=true 的 OnRatingBarChangeListener 语义）。状态串：
+//   "dispatched objectId=N rating-milli=V" / "no-view …" / channel-ok …
+std::string InjectGuestObjectRating(dexvm::runtime::VMState* vm_state, uint32_t object_id,
+                                    int32_t milli_rating);
+
+// DrawerLayout 开合回灌：objectId + open -> guest onHostDrawerStateChanged
+// （lib DrawerLayout 按新状态通知 DrawerListener）。状态串：
+//   "dispatched objectId=N drawer-open=1/0" / "no-view …" / channel-ok …
+std::string InjectGuestObjectDrawer(dexvm::runtime::VMState* vm_state, uint32_t object_id,
+                                    bool open);
+
 // 该 guest View 是否登记了 long-click 监听器（快照 kPropHasLongClickListener 用）。
 bool HasGuestLongClickListener(dexvm::runtime::VObject* view);
 

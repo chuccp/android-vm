@@ -11,10 +11,12 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.CheckedTextView;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -23,6 +25,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RadioButton;
+import android.widget.RatingBar;
 import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -104,6 +107,9 @@ public final class UiBridgeMaterializer {
     private static final int PROP_WINDOW_DIM = 26;
     private static final int PROP_CHECKED = 27;
     private static final int PROP_HAS_LONG_CLICK = 28;
+    private static final int PROP_RATING = 29;
+    private static final int PROP_NUM_STARS = 30;
+    private static final int PROP_DRAWER_OPEN = 31;
 
     private static final int TYPE_INT = 1;
     private static final int TYPE_FLOAT = 2;
@@ -182,6 +188,18 @@ public final class UiBridgeMaterializer {
     private final Set<View> seekListenersInstalled =
             Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
     private final Set<View> longClickInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Set<View> ratingListenersInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    private final Set<View> drawerListenersInstalled =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    // 快照回写 drawer 开合时抑制手势回灌（避免 host->guest 回声）。
+    private final Set<View> suppressDrawerEvents =
+            Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
+    // 快照已驱动到的宿主开合态：动画结束后的 onDrawerOpened/Closed 回声据此丢弃。
+    private final Map<View, Boolean> drawerLastApplied = new IdentityHashMap<>();
+    // 快照回写 rating 时抑制回调（避免 host->guest 回声）。
+    private final Set<View> suppressRatingEvents =
             Collections.newSetFromMap(new IdentityHashMap<View, Boolean>());
     // 快照回写文本时抑制 TextWatcher 回灌（避免 host->guest 回声）。
     private final Set<View> suppressTextEvents =
@@ -656,6 +674,12 @@ public final class UiBridgeMaterializer {
             v = new ToggleButton(context);
         } else if (cls.endsWith("SeekBar")) {
             v = new SeekBar(context);
+        } else if (cls.endsWith("RatingBar")) {
+            v = new RatingBar(context);
+        } else if (cls.endsWith("CheckedTextView")) {
+            CheckedTextView checkedTextView = new CheckedTextView(context);
+            checkedTextView.setCheckMarkDrawable(android.R.drawable.checkbox_on_background);
+            v = checkedTextView;
         } else if (cls.endsWith("ImageButton")) {
             // ImageButton 以图片出画（AOSP ImageButton extends ImageView）。
             v = new ImageView(context);
@@ -698,6 +722,14 @@ public final class UiBridgeMaterializer {
                 }
             });
             v = scrollView;
+        } else if (cls.endsWith("DrawerLayout")) {
+            // guest androidx DrawerLayout（runtime.dex 垫片）-> 宿主真
+            // androidx DrawerLayout：原生边缘手势/动画/遮罩/返回键语义。
+            androidx.drawerlayout.widget.DrawerLayout drawerLayout =
+                    new androidx.drawerlayout.widget.DrawerLayout(context);
+            // 原生抽屉投影（宿主主题未带 drawerLayoutStyle 时缺省 0）。
+            drawerLayout.setDrawerElevation(dpToPx(8));
+            v = drawerLayout;
         } else if (isLinearContainer(node, cls)) {
             // AOSP 线性容器（含 ZHLinearLayout2 等派生类）：按 orientation
             // 做行/列流式布局。
@@ -725,6 +757,13 @@ public final class UiBridgeMaterializer {
             return;
         }
         ViewGroup group = (ViewGroup) parent;
+        // DrawerLayout：内容子项 match_parent，抽屉子项按 guest 窄宽 + 左缘
+        // gravity；开合状态由宿主真 DrawerLayout 承担（guest 手势面不重放）。
+        if (group instanceof androidx.drawerlayout.widget.DrawerLayout) {
+            attachDrawerChild((androidx.drawerlayout.widget.DrawerLayout) group, child, node,
+                    parentNode);
+            return;
+        }
         // 滚动容器：ScrollView 只接受单子项且忽略绝对 margin 摆放——内容子项
         // 按滚动内容自量（高度 WRAP_CONTENT），滚动由宿主真 ScrollView 承担。
         if (group instanceof ScrollView || group instanceof HorizontalScrollView) {
@@ -807,6 +846,83 @@ public final class UiBridgeMaterializer {
         group.addView(child, lp);
     }
 
+    // ---- DrawerLayout（guest androidx 垫片 -> 宿主真 DrawerLayout）----
+
+    /**
+     * 抽屉子项挂接：第一个/宽 match_parent 的子项是内容面（MATCH_PARENT 铺满），
+     * 定宽或 start/end gravity 的子项是抽屉面（窄宽 + Start gravity）。
+     * guest 的 layout_gravity 字符串属性在 VM inflater 侧不解析成位值，因此
+     * 以"具名宽度"为主判据（本 app 抽屉固定 200dp）。
+     */
+    private void attachDrawerChild(final androidx.drawerlayout.widget.DrawerLayout group,
+                                   View child, Node node, Node parentNode) {
+        Prop glp = node.prop(PROP_LAYOUT_PARAMS);
+        int gw = glp != null ? glp.rect[0] : 0;
+        int gh = glp != null ? glp.rect[1] : 0;
+        Prop grav = node.prop(PROP_LAYOUT_GRAVITY);
+        int g = grav != null ? grav.asInt() : 0;
+        boolean gravityDrawer =
+                (g & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.LEFT
+                        || (g & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.RIGHT;
+        boolean drawer = gravityDrawer || gw > 0;
+        if (!drawer) {
+            // 内容面：与宿主 DrawerLayout 同尺寸，绝对子项照旧由 Host 容器自摆。
+            group.addView(child, new androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+        } else {
+            int width = gw > 0 ? gw : dpToPx(200);
+            if (gw <= 0) {
+                Prop b = node.prop(PROP_BOUNDS);
+                int bw = b != null ? b.rect[2] - b.rect[0] : 0;
+                if (bw > 0) width = bw;
+            }
+            int height = gh > 0 ? gh : ViewGroup.LayoutParams.MATCH_PARENT;
+            group.addView(child, new androidx.drawerlayout.widget.DrawerLayout.LayoutParams(
+                    width, height, Gravity.START));
+        }
+        absoluteViews.remove(child);
+        // 首帧重建时 kPropDrawerOpen 先于子项落地（applyProps 在叶创建时执行）：
+        // 抽屉子项挂上后按父节点状态校准宿主开合。
+        Prop open = parentNode != null ? parentNode.prop(PROP_DRAWER_OPEN) : null;
+        applyDrawerState(group, open != null && open.asInt() != 0);
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(dp * context.getResources().getDisplayMetrics().density);
+    }
+
+    /** 宿主 DrawerLayout 是否已有 START gravity 的抽屉子项（无子项时开合会抛）。 */
+    private static boolean hasDrawerChild(androidx.drawerlayout.widget.DrawerLayout group) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            ViewGroup.LayoutParams p = group.getChildAt(i).getLayoutParams();
+            // START=0x00800003；先按水平掩码取绝对缘（LTR 下等于 LEFT=3）。
+            if (p instanceof androidx.drawerlayout.widget.DrawerLayout.LayoutParams
+                    && (((androidx.drawerlayout.widget.DrawerLayout.LayoutParams) p).gravity
+                            & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.LEFT) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 按 guest 状态开合宿主原生抽屉；快照回写期间抑制手势回灌回声。 */
+    private void applyDrawerState(final androidx.drawerlayout.widget.DrawerLayout group,
+                                  boolean open) {
+        if (!hasDrawerChild(group)) return;
+        if (group.isDrawerOpen(Gravity.START) == open) return;
+        suppressDrawerEvents.add(group);
+        try {
+            if (open) group.openDrawer(Gravity.START);
+            else group.closeDrawer(Gravity.START);
+            drawerLastApplied.put(group, open);  // 动画结束的回声在 dispatchDrawer 丢弃
+        } catch (Throwable t) {
+            Log.w(TAG, "drawer state apply failed open=" + open, t);
+        } finally {
+            suppressDrawerEvents.remove(group);
+        }
+    }
+
     /** guest LayoutParams 宽高 -> 宿主布局约束。
      *  WRAP_CONTENT 有已测尺寸时优先用已测值（traversal 中断前的有效测量），
      *  否则交宿主按内容自量。 */
@@ -881,6 +997,33 @@ public final class UiBridgeMaterializer {
             Prop checked = node.prop(PROP_CHECKED);
             if (checked != null) {
                 ((CompoundButton) v).setChecked(checked.asInt() != 0);
+            }
+        }
+        if (v instanceof CheckedTextView) {
+            Prop checked = node.prop(PROP_CHECKED);
+            if (checked != null) {
+                ((CheckedTextView) v).setChecked(checked.asInt() != 0);
+            }
+        }
+        if (v instanceof RatingBar) {
+            RatingBar ratingBar = (RatingBar) v;
+            Prop stars = node.prop(PROP_NUM_STARS);
+            if (stars != null && stars.asInt() > 0) {
+                ratingBar.setNumStars(stars.asInt());
+            }
+            Prop rating = node.prop(PROP_RATING);
+            if (rating != null) {
+                // 快照回写评分：抑制 fromUser 回灌（用户拖星仍正常）。
+                suppressRatingEvents.add(ratingBar);
+                ratingBar.setRating(rating.f);
+                suppressRatingEvents.remove(ratingBar);
+            }
+        }
+        if (v instanceof androidx.drawerlayout.widget.DrawerLayout) {
+            Prop open = node.prop(PROP_DRAWER_OPEN);
+            if (open != null) {
+                applyDrawerState((androidx.drawerlayout.widget.DrawerLayout) v,
+                        open.asInt() != 0);
             }
         }
         if (v instanceof VideoView) {
@@ -975,7 +1118,9 @@ public final class UiBridgeMaterializer {
         // 交互回灌面（与 click 独立）：文本键入 / SeekBar 拖拽 / 长按。
         wireEditTextBackflow(v, objectId);
         wireSeekBackflow(v, objectId);
+        wireRatingBackflow(v, objectId);
         wireLongClick(v, node, objectId);
+        wireDrawerBackflow(v, objectId);
         Prop hasClick = node.prop(PROP_HAS_CLICK);
         if (hasClick == null || hasClick.asInt() == 0) {
             // AOSP 命中语义：没有 click listener 的 View 不消费触摸。此前对
@@ -1065,6 +1210,27 @@ public final class UiBridgeMaterializer {
                 + " value=" + progress + " -> " + status);
     }
 
+    /** RatingBar 拖星回灌：fromUser 评分变化 -> guest OnRatingBarChangeListener。 */
+    private void wireRatingBackflow(final View v, final int objectId) {
+        if (!(v instanceof RatingBar)) return;
+        if (!ratingListenersInstalled.add(v)) return;
+        ((RatingBar) v).setOnRatingBarChangeListener((bar, rating, fromUser) -> {
+            if (!fromUser || suppressRatingEvents.contains(v)) return;
+            dispatchRating(objectId, Math.round(rating * 1000f));
+        });
+    }
+
+    private void dispatchRating(int objectId, int milliRating) {
+        String status;
+        try {
+            status = NativeBridge.nativeDispatchViewRating(objectId, milliRating);
+        } catch (Throwable t) {
+            status = "error: " + t;
+        }
+        Log.i(TAG, "host rating objectId=" + objectId + " milli=" + milliRating
+                + " -> " + status);
+    }
+
     /** 长按回灌：仅在 guest 登记了 OnLongClickListener 时安装（避免吞手势）。 */
     private void wireLongClick(final View v, final Node node, final int objectId) {
         Prop hasLong = node.prop(PROP_HAS_LONG_CLICK);
@@ -1087,6 +1253,39 @@ public final class UiBridgeMaterializer {
                 return true;
             }
         });
+    }
+
+    /** DrawerLayout 手势开合回灌：宿主原生手势/遮罩点击 -> guest DrawerListener。 */
+    private void wireDrawerBackflow(final View v, final int objectId) {
+        if (!(v instanceof androidx.drawerlayout.widget.DrawerLayout)) return;
+        if (!drawerListenersInstalled.add(v)) return;
+        ((androidx.drawerlayout.widget.DrawerLayout) v).addDrawerListener(
+                new androidx.drawerlayout.widget.DrawerLayout.SimpleDrawerListener() {
+                    @Override
+                    public void onDrawerOpened(View drawerView) {
+                        dispatchDrawer(v, objectId, true);
+                    }
+
+                    @Override
+                    public void onDrawerClosed(View drawerView) {
+                        dispatchDrawer(v, objectId, false);
+                    }
+                });
+    }
+
+    private void dispatchDrawer(View drawerLayout, int objectId, boolean open) {
+        if (suppressDrawerEvents.contains(drawerLayout)) return;
+        // 快照驱动的开合在动画结束后会回调一次同态事件：不当作用户手势回灌，
+        // 否则 guest 侧状态机被自己的动作回声扰动（一次丢弃即可，后续手势照常）。
+        Boolean last = drawerLastApplied.remove(drawerLayout);
+        if (last != null && last == open) return;
+        String status;
+        try {
+            status = NativeBridge.nativeDispatchViewDrawer(objectId, open);
+        } catch (Throwable t) {
+            status = "error: " + t;
+        }
+        Log.i(TAG, "host drawer objectId=" + objectId + " open=" + open + " -> " + status);
     }
 
     // ---- 增量 patch ----

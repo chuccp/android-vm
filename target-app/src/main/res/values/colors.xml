@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="runtime_background">#FFF4F8F5</color>
+    <color name="runtime_card">#FFFFFFFF</color>
+    <color name="runtime_scrim">#66000000</color>
     <color name="runtime_title">#FF0E3731</color>
     <color name="runtime_body">#FF4E605B</color>
     <color name="runtime_accent">#FF13866F</color>
+    <color name="runtime_drawer_header">#FF0E3B33</color>
+    <color name="runtime_drawer_selected">#1F13866F</color>
 </resources>

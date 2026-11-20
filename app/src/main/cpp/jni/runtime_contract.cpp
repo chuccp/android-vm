@@ -346,6 +346,10 @@ struct ApkSessionState {
   uint32_t pending_seek_object = 0;   // SeekBar 拖拽回灌目标（0 = 无）
   int32_t pending_seek_progress = 0;
   int32_t pending_seek_phase = 0;     // 0 progress / 1 start / 2 stop
+  uint32_t pending_rating_object = 0; // RatingBar 拖星回灌目标（0 = 无）
+  int32_t pending_rating_milli = 0;   // rating * 1000（避免浮点线格式）
+  uint32_t pending_drawer_object = 0; // DrawerLayout 开合回灌目标（0 = 无）
+  int32_t pending_drawer_open = 0;    // 1 开 / 0 合
   std::deque<std::vector<uint8_t>> frames;  // UIBridge envelope 有序队列（full+patch）
 };
 ApkSessionState g_session_state;
@@ -355,7 +359,8 @@ bool SessionWakePred(void* arg) {
   std::lock_guard<std::mutex> lk(s->mu);
   return s->stop_requested || s->pending_click >= 0 || s->pending_object_click != 0 ||
          s->pending_long_object != 0 || s->pending_text_object != 0 ||
-         s->pending_seek_object != 0;
+         s->pending_seek_object != 0 || s->pending_rating_object != 0 ||
+         s->pending_drawer_object != 0;
 }
 
 // M4.1/M4.2 设备化入口：引导 VM 跑目标 APK 全生命周期链 + 首帧管线
@@ -2812,6 +2817,10 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
           g_session_state.pending_seek_object = 0;
           g_session_state.pending_seek_progress = 0;
           g_session_state.pending_seek_phase = 0;
+          g_session_state.pending_rating_object = 0;
+          g_session_state.pending_rating_milli = 0;
+          g_session_state.pending_drawer_object = 0;
+          g_session_state.pending_drawer_open = 0;
           g_session_state.frames.clear();
           // 首帧全量 envelope 入队（宿主从 full 基线开始物化）
           g_session_state.frames.push_back(run->ui->last_view_tree());
@@ -2831,6 +2840,10 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
           uint32_t seek_object = 0;
           int32_t seek_progress = 0;
           int32_t seek_phase = 0;
+          uint32_t rating_object = 0;
+          int32_t rating_milli = 0;
+          uint32_t drawer_object = 0;
+          int32_t drawer_open = 0;
           bool stop = false;
           {
             std::lock_guard<std::mutex> lk(g_session_state.mu);
@@ -2842,6 +2855,10 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             seek_object = g_session_state.pending_seek_object;
             seek_progress = g_session_state.pending_seek_progress;
             seek_phase = g_session_state.pending_seek_phase;
+            rating_object = g_session_state.pending_rating_object;
+            rating_milli = g_session_state.pending_rating_milli;
+            drawer_object = g_session_state.pending_drawer_object;
+            drawer_open = g_session_state.pending_drawer_open;
             g_session_state.pending_click = -1;
             g_session_state.pending_object_click = 0;
             g_session_state.pending_long_object = 0;
@@ -2849,6 +2866,10 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             g_session_state.pending_seek_object = 0;
             g_session_state.pending_seek_progress = 0;
             g_session_state.pending_seek_phase = 0;
+            g_session_state.pending_rating_object = 0;
+            g_session_state.pending_rating_milli = 0;
+            g_session_state.pending_drawer_object = 0;
+            g_session_state.pending_drawer_open = 0;
             stop = g_session_state.stop_requested;
           }
           if (object_click != 0) {
@@ -2873,6 +2894,18 @@ bool RunApkLifecycleGuest(LifecycleGuestRun* run, std::string* error) {
             std::string status = dexvm::bridge::InjectGuestObjectSeek(
                 &s, seek_object, seek_progress, seek_phase);
             ProgressAppend("session seek objectId=" + std::to_string(seek_object) + ": " +
+                           status);
+          }
+          if (rating_object != 0) {
+            std::string status =
+                dexvm::bridge::InjectGuestObjectRating(&s, rating_object, rating_milli);
+            ProgressAppend("session rating objectId=" + std::to_string(rating_object) + ": " +
+                           status);
+          }
+          if (drawer_object != 0) {
+            std::string status = dexvm::bridge::InjectGuestObjectDrawer(
+                &s, drawer_object, drawer_open != 0);
+            ProgressAppend("session drawer objectId=" + std::to_string(drawer_object) + ": " +
                            status);
           }
           if (stop) break;
@@ -5179,6 +5212,28 @@ extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueSeek(
   g_session_state.pending_seek_object = object_id;
   g_session_state.pending_seek_progress = progress;
   g_session_state.pending_seek_phase = phase;
+  return true;
+}
+
+// RatingBar 拖星回灌入队（milliRating = rating * 1000）。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueRating(
+    uint32_t object_id, int32_t milli_rating) {
+  if (object_id == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_rating_object = object_id;
+  g_session_state.pending_rating_milli = milli_rating;
+  return true;
+}
+
+// DrawerLayout 开合回灌入队（open：1 开 / 0 合）。
+extern "C" __attribute__((visibility("default"))) bool DexVmSessionEnqueueDrawer(
+    uint32_t object_id, int32_t open) {
+  if (object_id == 0) return false;
+  std::lock_guard<std::mutex> lk(g_session_state.mu);
+  if (!g_session_state.active) return false;
+  g_session_state.pending_drawer_object = object_id;
+  g_session_state.pending_drawer_open = open;
   return true;
 }
 

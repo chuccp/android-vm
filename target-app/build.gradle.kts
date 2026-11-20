@@ -43,6 +43,7 @@ android {
 
 dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.0.4")
+    implementation("androidx.drawerlayout:drawerlayout:1.2.0")
     implementation("org.apache.commons:commons-lang3:3.17.0")
     implementation("com.alibaba:fastjson:1.2.83")
     implementation("com.alibaba.fastjson2:fastjson2:2.0.66")

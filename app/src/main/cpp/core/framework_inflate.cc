@@ -416,7 +416,12 @@ std::string WidgetDescriptorForTag(std::string_view tag, bool* constraint_approx
   if (tag == "RadioGroup") return "Landroid/widget/RadioGroup;";
   if (tag == "ToggleButton") return "Landroid/widget/ToggleButton;";
   if (tag == "ListView") return "Landroid/widget/ListView;";
+  if (tag == "GridView") return "Landroid/widget/GridView;";
   if (tag == "Spinner") return "Landroid/widget/Spinner;";
+  if (tag == "RatingBar") return "Landroid/widget/RatingBar;";
+  if (tag == "CheckedTextView") return "Landroid/widget/CheckedTextView;";
+  if (tag == "TableLayout") return "Landroid/widget/TableLayout;";
+  if (tag == "TableRow") return "Landroid/widget/TableRow;";
   if (tag == "VideoView") return "Landroid/widget/VideoView;";
   if (tag == "LinearLayout") return "Landroid/widget/LinearLayout;";
   if (tag == "FrameLayout") return "Landroid/widget/FrameLayout;";
@@ -513,12 +518,8 @@ VObject* NewView(InflateContext& ctx, VClass* klass) {
   }
 #if defined(__ANDROID__)
   if (klass->descriptor.find("DrawerLayout") != std::string::npos) {
-    ObjHeader* ld = nullptr;
-    if (VField* f = FindFieldInChain(klass, "mLeftDragger")) {
-      ld = GetRefField(view, f->offset);
-    }
-    __android_log_print(ANDROID_LOG_INFO, "DexVmInflate", "DrawerLayout ctor_ok=%d dragger=%p",
-                        ctor_ok_now ? 1 : 0, (void*)ld);
+    __android_log_print(ANDROID_LOG_INFO, "DexVmInflate", "DrawerLayout ctor_ok=%d",
+                        ctor_ok_now ? 1 : 0);
   }
 #endif
   if (ctor_ok_now) return view;

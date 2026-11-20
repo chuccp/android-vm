@@ -81,6 +81,8 @@ Java_com_dexvm_host_NativeBridge_nativeDispatchViewObjectClick(JNIEnv* env, jcla
 extern "C" bool DexVmSessionEnqueueLongClick(uint32_t object_id);
 extern "C" bool DexVmSessionEnqueueText(uint32_t object_id, const char* text, size_t len);
 extern "C" bool DexVmSessionEnqueueSeek(uint32_t object_id, int32_t progress, int32_t phase);
+extern "C" bool DexVmSessionEnqueueRating(uint32_t object_id, int32_t milli_rating);
+extern "C" bool DexVmSessionEnqueueDrawer(uint32_t object_id, int32_t open);
 
 // 长按回灌：host 长按 -> objectId -> guest performLongClick。
 extern "C" JNIEXPORT jstring JNICALL
@@ -130,6 +132,36 @@ Java_com_dexvm_host_NativeBridge_nativeDispatchViewSeek(JNIEnv* env, jclass, jin
              std::to_string(phase) + " value=" + std::to_string(progress);
   } else {
     status = dexvm::bridge::InjectGuestObjectSeek(nullptr, id, progress, phase);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
+// RatingBar 拖星回灌：host RatingBar -> objectId + milliRating -> guest listener。
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchViewRating(JNIEnv* env, jclass, jint object_id,
+                                                          jint milli_rating) {
+  uint32_t id = static_cast<uint32_t>(object_id);
+  std::string status;
+  if (DexVmSessionEnqueueRating(id, milli_rating)) {
+    status = "queued objectId=" + std::to_string(id) + " rating-milli=" +
+             std::to_string(milli_rating);
+  } else {
+    status = dexvm::bridge::InjectGuestObjectRating(nullptr, id, milli_rating);
+  }
+  return env->functions->NewStringUTF(env, status.c_str());
+}
+
+// DrawerLayout 开合回灌：host 手势开合 -> objectId + open -> guest listener。
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dexvm_host_NativeBridge_nativeDispatchViewDrawer(JNIEnv* env, jclass, jint object_id,
+                                                          jboolean open) {
+  uint32_t id = static_cast<uint32_t>(object_id);
+  std::string status;
+  if (DexVmSessionEnqueueDrawer(id, open ? 1 : 0)) {
+    status = "queued objectId=" + std::to_string(id) + " drawer-open=" +
+             (open ? "1" : "0");
+  } else {
+    status = dexvm::bridge::InjectGuestObjectDrawer(nullptr, id, open == JNI_TRUE);
   }
   return env->functions->NewStringUTF(env, status.c_str());
 }

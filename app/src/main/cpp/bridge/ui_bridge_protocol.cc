@@ -968,9 +968,21 @@ ViewSnapshot BuildSnapshotFromGuest(VMState& state, VObject* content_view) {
           }
         }
         add(kPropProgress, PropValue::Int(ViewI(view, "mProgress")));
+        // RatingBar：rating/numStars（宿主原生星级拖拽回灌）。
+        if (FindField(view->klass, "mRating") != nullptr) {
+          add(kPropRating, PropValue::Float(ViewF(view, "mRating")));
+        }
+        if (FindField(view->klass, "mNumStars") != nullptr) {
+          add(kPropNumStars, PropValue::Int(ViewI(view, "mNumStars")));
+        }
         // CompoundButton/CheckedTextView 选中态（宿主可勾选控件状态同步）。
         if (FindField(view->klass, "mChecked") != nullptr) {
           add(kPropChecked, PropValue::Bool(ViewI(view, "mChecked") != 0));
+        }
+        // DrawerLayout 开合态（宿主真 androidx DrawerLayout 按此状态开合；
+        // 宿主手势开合经 nativeDispatchViewDrawer 反向回灌 guest）。
+        if (FindField(view->klass, "mDrawerOpen") != nullptr) {
+          add(kPropDrawerOpen, PropValue::Bool(ViewI(view, "mDrawerOpen") != 0));
         }
         VString* video_path = reinterpret_cast<VString*>(ViewRef(view, "mVideoPath"));
         if (video_path != nullptr && video_path->length > 0) {

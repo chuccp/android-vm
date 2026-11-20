@@ -2492,4 +2492,38 @@ bool HasGuestLongClickListener(VObject* view) {
   return FindLongClickListener(view) != nullptr;
 }
 
+std::string InjectGuestObjectRating(VMState* vm_state, uint32_t object_id,
+                                    int32_t milli_rating) {
+  if (vm_state == nullptr) {
+    return "channel-ok objectId=" + std::to_string(object_id) + " guest-session=absent";
+  }
+  VObject* target = FindLiveViewByObjectId(object_id);
+  if (target == nullptr) return "no-view objectId=" + std::to_string(object_id);
+  Value arg{};
+  arg.f = static_cast<float>(milli_rating) / 1000.0f;
+  if (!CallVirtual(*vm_state, target, "onHostRatingChanged", {"F"}, "V", &arg, 1, nullptr)) {
+    if (vm_state->HasPendingException()) vm_state->ClearException();
+    return "dispatch-error objectId=" + std::to_string(object_id);
+  }
+  return "dispatched objectId=" + std::to_string(object_id) + " rating-milli=" +
+         std::to_string(milli_rating);
+}
+
+std::string InjectGuestObjectDrawer(VMState* vm_state, uint32_t object_id, bool open) {
+  if (vm_state == nullptr) {
+    return "channel-ok objectId=" + std::to_string(object_id) + " guest-session=absent";
+  }
+  VObject* target = FindLiveViewByObjectId(object_id);
+  if (target == nullptr) return "no-view objectId=" + std::to_string(object_id);
+  Value arg{};
+  arg.i = open ? 1 : 0;
+  if (!CallVirtual(*vm_state, target, "onHostDrawerStateChanged", {"Z"}, "V", &arg, 1,
+                   nullptr)) {
+    if (vm_state->HasPendingException()) vm_state->ClearException();
+    return "dispatch-error objectId=" + std::to_string(object_id);
+  }
+  return "dispatched objectId=" + std::to_string(object_id) + " drawer-open=" +
+         (open ? "1" : "0");
+}
+
 }  // namespace dexvm::bridge

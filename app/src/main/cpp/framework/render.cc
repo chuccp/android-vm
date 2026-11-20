@@ -881,6 +881,74 @@ Value ContainerOnMeasure(VMState& state, VObject* self, const Value* args, size_
   return Value{};
 }
 
+// ScrollView：AOSP 口径——单子项高度按 UNSPECIFIED 测量（内容可高于视口），
+// 容器自身取视口尺寸；滚动由宿主真 ScrollView 承担（guest 侧只负责子项几何）。
+// 旧路径走 ContainerOnMeasure（FrameLayout 近似）：子项被 AT_MOST(视口) 限高，
+// 高于视口的内容塌陷/错位。
+Value SVOnMeasure(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  *ok = true;
+  if (n < 2) {
+    *ok = false;
+    return Value{};
+  }
+  int32_t wspec = args[0].i;
+  int32_t hspec = args[1].i;
+  int32_t pad_w = ViewI(self, "mPaddingLeft") + ViewI(self, "mPaddingRight");
+  int32_t pad_h = ViewI(self, "mPaddingTop") + ViewI(self, "mPaddingBottom");
+  int32_t max_w = 0;
+  int32_t max_h = 0;
+  VArray* children = ViewChildren(self);
+  if (children != nullptr) {
+    for (int32_t i = 0; i < children->length; i++) {
+      ObjHeader* ref = GetArrRef(children, i);
+      if (ref == nullptr) continue;
+      VObject* child = reinterpret_cast<VObject*>(ref);
+      if (ViewI(child, "mVisibility") == 8) continue;
+      ChildLp lp = ReadChildLp(child);
+      Value cargs[2] = {};
+      cargs[0].i = ChildMeasureSpecFull(wspec, pad_w, lp.ml, lp.mr, 0, lp.width);
+      // AOSP ScrollView：子项高度无界，由内容自量。
+      cargs[1].i = MakeMeasureSpec(0, kUnspecified);
+      if (!CallVirtual(state, child, "measure", {"I", "I"}, "V", cargs, 2, nullptr)) {
+        *ok = false;
+        return Value{};
+      }
+      max_w = std::max(max_w, ViewI(child, "mMeasuredWidth") + lp.ml + lp.mr);
+      max_h = std::max(max_h, ViewI(child, "mMeasuredHeight") + lp.mt + lp.mb);
+    }
+  }
+  SetMeasured(self, ResolveSize(max_w + pad_w, wspec), ResolveSize(max_h + pad_h, hspec));
+  return Value{};
+}
+
+Value SVOnLayout(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
+  *ok = true;
+  if (n < 4) {
+    *ok = false;
+    return Value{};
+  }
+  int32_t pad_l = ViewI(self, "mPaddingLeft");
+  int32_t pad_t = ViewI(self, "mPaddingTop");
+  VArray* children = ViewChildren(self);
+  if (children == nullptr) return Value{};
+  for (int32_t i = 0; i < children->length; i++) {
+    ObjHeader* ref = GetArrRef(children, i);
+    if (ref == nullptr) continue;
+    VObject* child = reinterpret_cast<VObject*>(ref);
+    if (ViewI(child, "mVisibility") == 8) continue;
+    int32_t w = ViewI(child, "mMeasuredWidth");
+    int32_t h = ViewI(child, "mMeasuredHeight");
+    // AOSP ScrollView 单子项：layout 在 padding 起点（滚动偏移由 scrollX/Y 承载）。
+    Value larg[4] = {};
+    larg[0].i = pad_l;
+    larg[1].i = pad_t;
+    larg[2].i = pad_l + w;
+    larg[3].i = pad_t + h;
+    CallVirtual(state, child, "layout", {"I", "I", "I", "I"}, "V", larg, 4, nullptr);
+  }
+  return Value{};
+}
+
 Value ContainerOnLayout(VMState& state, VObject* self, const Value* args, size_t n, bool* ok) {
   (void)n;
   *ok = true;
@@ -2198,15 +2266,19 @@ void RegisterRenderPipeline(ClassLinker* linker) {
   AddIntrinsic(linear_layout, "onMeasure", {"I", "I"}, "V", kAccPublic, LLOnMeasure);
   AddIntrinsic(linear_layout, "onLayout", {"Z", "I", "I", "I", "I"}, "V", kAccPublic, LLOnLayout);
 
-  // 资源布局容器（FrameLayout/RelativeLayout/ScrollView 近似面）
+  // 资源布局容器（FrameLayout/RelativeLayout/横向 ScrollView 近似面）
   for (const char* desc : {"Landroid/widget/FrameLayout;", "Landroid/widget/RelativeLayout;",
-                           "Landroid/widget/ScrollView;",
                            "Landroid/widget/HorizontalScrollView;"}) {
     VClass* container = linker->FindClass(desc);
     if (container == nullptr) continue;
     AddIntrinsic(container, "onMeasure", {"I", "I"}, "V", kAccPublic, ContainerOnMeasure);
     AddIntrinsic(container, "onLayout", {"Z", "I", "I", "I", "I"}, "V", kAccPublic,
                  ContainerOnLayout);
+  }
+  // ScrollView：单子项高度无界测量（内容可高于视口），宿主真 ScrollView 承担滚动
+  if (VClass* scroll = linker->FindClass("Landroid/widget/ScrollView;")) {
+    AddIntrinsic(scroll, "onMeasure", {"I", "I"}, "V", kAccPublic, SVOnMeasure);
+    AddIntrinsic(scroll, "onLayout", {"Z", "I", "I", "I", "I"}, "V", kAccPublic, SVOnLayout);
   }
   // ProgressBar：横向固有高度面
   if (VClass* progress = linker->FindClass("Landroid/widget/ProgressBar;")) {
@@ -2215,6 +2287,10 @@ void RegisterRenderPipeline(ClassLinker* linker) {
   // SeekBar：拖拽条视觉高度面（ProgressBar.onMeasure 的 8px 会把 thumb 压扁）
   if (VClass* seek_bar = linker->FindClass("Landroid/widget/SeekBar;")) {
     AddIntrinsic(seek_bar, "onMeasure", {"I", "I"}, "V", kAccPublic, SBOnMeasure);
+  }
+  // RatingBar：星级视觉高度面（同 SeekBar，宿主原生星级出画）
+  if (VClass* rating_bar = linker->FindClass("Landroid/widget/RatingBar;")) {
+    AddIntrinsic(rating_bar, "onMeasure", {"I", "I"}, "V", kAccPublic, SBOnMeasure);
   }
 
   // android.graphics.Canvas（幂等：FindClass 命中即已建）

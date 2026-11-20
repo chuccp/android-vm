@@ -62,12 +62,21 @@ fixture 方法并断言其返回的**哨兵 int**（VM 少实现一个语义就�
 
 fastjson 1.2.83、fastjson2 2.0.26、gson 2.11.0、jackson-databind 2.18.2、
 kotlinx-coroutines-core 1.10.2、netty 4.1.118.Final（buffer/codec/codec-http/handler/transport）、
-okio 3.18.2、okhttp 4.12.0、rxjava 3.1.10、slf4j-api 2.0.16、commons-lang3 3.17.0、androidx.constraintlayout 2.0.4。
+okio 3.18.2、okhttp 4.12.0、rxjava 3.1.10、slf4j-api 2.0.16、commons-lang3 3.17.0、
+androidx.constraintlayout 2.0.4、androidx.drawerlayout 1.2.0（guest 侧由 runtime.dex 垫片提供同名类，
+真类在宿主物化层）。
 dex 规模 5 个 classes*.dex（三方占大头）。
 
 ### 资源/媒体面
 
-- `res/layout/runtime_primary.xml`：**ConstraintLayout 根 + `<include>`**、约 15 个 id；`runtime_footer.xml`（ScrollView 面板）；`runtime_compiled.xml`（最小编译二进制 XML 探针）
+- `res/layout/runtime_primary.xml`：**androidx.DrawerLayout 根（原生侧滑菜单）+ `<include>`**、约 20 个 id；
+  内容面 = 顶栏（☰ 菜单）× ScrollView 的 section 卡片（Basics / Selection / Lists & grids / Layouts /
+  Dialogs & feedback / Network / Media / Runtime status），抽屉面 = 200dp start 抽屉（NavigationView
+  风格：深色头图 + 48dp 列表行 + 当前项 accent 高亮）。guest 侧是 runtime.dex 的
+  `androidx.drawerlayout.widget.DrawerLayout` 垫片（mDrawerOpen + DrawerListener 语义）；宿主物化层把
+  同一节点换真 androidx DrawerLayout——边缘滑动手势/滑动动画/遮罩/阴影是原生行为，开合经快照
+  `kPropDrawerOpen` 与 `nativeDispatchViewDrawer` 双向同步。`runtime_footer.xml`（被 Layouts section
+  `<include>` 的编译布局小卡）；`runtime_compiled.xml`（最小编译二进制 XML 探针）
 - `runtime_footer.xml` 的 **Extended widget gallery**：CheckBox / RadioGroup+RadioButton / ToggleButton /
   SeekBar / ImageButton（XML 膨胀 + 点击 performClick 回灌 + checked/progress 状态桥接）；ListView
   （`ArrayAdapter` item 行物化 + 测量/堆叠）与 Spinner（点击循环选中项 + OnItemSelectedListener）；
@@ -120,7 +129,8 @@ gradle :target-app:assembleDebug            # 或 ./gradlew :target-app:assemble
 - Kotlin 由 AGP 9 内建 Kotlin 编译（无需声明 kotlin 插件，`.kt` 自动处理）
 - 三方依赖版本在 `target-app/build.gradle.kts` 内联（已验证组合：fastjson 1.2.83 / fastjson2 2.0.26 /
   gson 2.11.0 / jackson-databind 2.18.2 / kotlinx-coroutines-core 1.10.2 / netty 4.1.118.Final /
-  okio 3.18.2 / okhttp 4.12.0 / rxjava 3.1.10 / slf4j-api 2.0.16 / commons-lang3 3.17.0 / constraintlayout 2.0.4）
+  okio 3.18.2 / okhttp 4.12.0 / rxjava 3.1.10 / slf4j-api 2.0.16 / commons-lang3 3.17.0 / constraintlayout 2.0.4 /
+  androidx.drawerlayout 1.2.0）
 - 如需代理拉取依赖：`export GRADLE_OPTS="-DsocksProxyHost=127.0.0.1 -DsocksProxyPort=10808 -DsocksProxyVersion=5"`
 
 ## 迁移纪要（收官迁移轮，已完成）

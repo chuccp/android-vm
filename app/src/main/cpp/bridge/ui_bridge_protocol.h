@@ -86,6 +86,11 @@ enum PropKey : uint16_t {
   kPropHasLongClickListener = 28, // kBool — 桥接登记的 guest OnLongClickListener 存在
                               //            （宿主据此装 long-click 回灌；缺省不装，
                               //             避免吞掉 ScrollView/ListView 的长按手势）
+  kPropRating = 29,           // kFloat   — RatingBar.mRating（宿主原生星级）
+  kPropNumStars = 30,         // kInt     — RatingBar.mNumStars
+  kPropDrawerOpen = 31,       // kBool    — DrawerLayout.mDrawerOpen（guest 开合态；
+                              //            宿主真 androidx DrawerLayout 联动，
+                              //            宿主手势开合经回灌通道反向同步）
 };
 
 struct PropValue {

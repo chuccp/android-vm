@@ -14,13 +14,16 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.CheckedTextView;
 import android.widget.EditText;
+import android.widget.GridView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -28,6 +31,7 @@ import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
+import android.widget.RatingBar;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.Switch;
@@ -115,6 +119,7 @@ public final class MainActivity extends Activity {
                 getResources().getConfiguration().orientation + " " +
                 RuntimeLibraryCompatibilityFixture.packageManagerSummary(this) +
                 " " + contextResult);
+        wireSectionDrawer();
         wireExtendedWidgets();
         mainHandler = new Handler(Looper.getMainLooper());
         dynamicBadge = new TextView(this);
@@ -179,11 +184,21 @@ public final class MainActivity extends Activity {
         });
 
         runtimePanel.updateScore(TargetEntry.nativeCallFlow(18));
-        addContentView(
-                runtimePanel,
-                new android.view.ViewGroup.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        // 展览页：程序化面板放进页面内的状态卡片（随页面滚动）；无 slot
+        // （旧布局）时回落到 addContentView，保持两套布局兼容。
+        android.view.ViewGroup panelSlot =
+                (android.view.ViewGroup) findViewById(R.id.runtime_panel_slot);
+        if (panelSlot != null) {
+            panelSlot.addView(runtimePanel, new android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        } else {
+            addContentView(
+                    runtimePanel,
+                    new android.view.ViewGroup.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         new Thread(new RuntimeTask(threadStatus), "RuntimeTask-1").start();
         new Thread(new RuntimeTask(threadStatus), "RuntimeTask-2").start();
         RuntimeIoTask.createPipe();
@@ -202,6 +217,133 @@ public final class MainActivity extends Activity {
         Intent intent = new Intent();
         intent.setClassName("com.coke.target", "com.coke.target.RuntimeService");
         startService(intent);
+    }
+
+    /**
+     * 侧滑菜单（androidx.DrawerLayout）：顶栏 Menu 开抽屉，菜单项切换主区
+     * section 并关抽屉。guest 侧是 runtime.dex 的 DrawerLayout 垫片；宿主
+     * 物化层换成真 androidx DrawerLayout——边缘手势/动画/遮罩/返回键为
+     * 原生行为，开合状态经 UI 桥双向同步（guest DrawerListener 收回调）。
+     */
+    private void wireSectionDrawer() {
+        final androidx.drawerlayout.widget.DrawerLayout drawer =
+                (androidx.drawerlayout.widget.DrawerLayout) findViewById(
+                        R.id.runtime_drawer_layout);
+        TextView menu = (TextView) findViewById(R.id.runtime_menu);
+        if (menu != null && drawer != null) {
+            menu.setOnClickListener(view -> drawer.openDrawer(Gravity.START));
+        }
+        if (drawer != null) {
+            drawer.addDrawerListener(
+                    new androidx.drawerlayout.widget.DrawerLayout.SimpleDrawerListener() {
+                        @Override
+                        public void onDrawerOpened(View drawerView) {
+                            Log.i("DexVmTarget", "drawer opened");
+                            if (capabilityStatus != null) {
+                                capabilityStatus.setText("Drawer opened (native)");
+                            }
+                        }
+
+                        @Override
+                        public void onDrawerClosed(View drawerView) {
+                            Log.i("DexVmTarget", "drawer closed");
+                            if (capabilityStatus != null) {
+                                capabilityStatus.setText("Drawer closed (native)");
+                            }
+                        }
+                    });
+        }
+        wireSectionMenuItem(R.id.runtime_menu_basics, R.id.runtime_section_basics,
+                getString(R.string.menu_basics), drawer);
+        wireSectionMenuItem(R.id.runtime_menu_selection, R.id.runtime_section_selection,
+                getString(R.string.menu_selection), drawer);
+        wireSectionMenuItem(R.id.runtime_menu_lists, R.id.runtime_section_lists,
+                getString(R.string.section_lists), drawer);
+        wireSectionMenuItem(R.id.runtime_menu_layouts, R.id.runtime_section_layouts,
+                getString(R.string.menu_layouts), drawer);
+        wireSectionMenuItem(R.id.runtime_menu_dialogs, R.id.runtime_section_dialogs,
+                getString(R.string.section_dialogs), drawer);
+        wireSectionMenuItem(R.id.runtime_menu_network, R.id.runtime_section_network,
+                getString(R.string.section_network), drawer);
+        wireSectionMenuItem(R.id.runtime_menu_media, R.id.runtime_section_media,
+                getString(R.string.section_media), drawer);
+        wireSectionMenuItem(R.id.runtime_menu_status, R.id.runtime_section_status,
+                getString(R.string.section_status), drawer);
+        updateMenuSelection(R.id.runtime_menu_basics);
+    }
+
+    private static final int[] MENU_ITEM_IDS = {
+            R.id.runtime_menu_basics,
+            R.id.runtime_menu_selection,
+            R.id.runtime_menu_lists,
+            R.id.runtime_menu_layouts,
+            R.id.runtime_menu_dialogs,
+            R.id.runtime_menu_network,
+            R.id.runtime_menu_media,
+            R.id.runtime_menu_status,
+    };
+
+    private void wireSectionMenuItem(int menuId, final int sectionId, final String title,
+                                     final androidx.drawerlayout.widget.DrawerLayout drawer) {
+        TextView item = (TextView) findViewById(menuId);
+        if (item == null) {
+            return;
+        }
+        item.setOnClickListener(view -> {
+            showSection(sectionId, title);
+            updateMenuSelection(menuId);
+            if (drawer != null) {
+                drawer.closeDrawer(Gravity.START);
+            }
+        });
+    }
+
+    /**
+     * 抽屉当前项高亮（NavigationView 选中态口径）：选中项 accent 文字 + 浅
+     * accent 底，其余项基础文字色 + 白底（显式白底让宿主能覆盖上一次的选中色）。
+     */
+    private void updateMenuSelection(int selectedId) {
+        for (int id : MENU_ITEM_IDS) {
+            TextView item = (TextView) findViewById(id);
+            if (item == null) {
+                continue;
+            }
+            if (id == selectedId) {
+                item.setTextColor(0xFF13866F);
+                item.setBackgroundColor(0x1F13866F);
+            } else {
+                item.setTextColor(0xFF0E3731);
+                item.setBackgroundColor(0xFFFFFFFF);
+            }
+        }
+    }
+
+    private void showSection(int sectionId, String title) {
+        int[] sections = {
+                R.id.runtime_section_basics,
+                R.id.runtime_section_selection,
+                R.id.runtime_section_lists,
+                R.id.runtime_section_layouts,
+                R.id.runtime_section_dialogs,
+                R.id.runtime_section_network,
+                R.id.runtime_section_media,
+                R.id.runtime_section_status,
+        };
+        for (int id : sections) {
+            android.view.View section = findViewById(id);
+            if (section != null) {
+                section.setVisibility(id == sectionId
+                        ? android.view.View.VISIBLE : android.view.View.GONE);
+            }
+        }
+        TextView sectionTitle = (TextView) findViewById(R.id.runtime_section_title);
+        if (sectionTitle != null) {
+            sectionTitle.setText(title);
+        }
+        android.view.View content = findViewById(R.id.runtime_content);
+        if (content instanceof android.widget.ScrollView) {
+            ((android.widget.ScrollView) content).scrollTo(0, 0);
+        }
     }
 
     /**
@@ -318,6 +460,37 @@ public final class MainActivity extends Activity {
                     capabilityStatus.setText("SeekBar drag stop=" + bar.getProgress());
                 }
             });
+        }
+
+        CheckedTextView checkedTextView =
+                (CheckedTextView) findViewById(R.id.runtime_checkedtext);
+        if (checkedTextView != null) {
+            checkedTextView.setOnClickListener(view -> {
+                checkedTextView.toggle();
+                capabilityStatus.setText("CheckedTextView checked="
+                        + checkedTextView.isChecked());
+            });
+        }
+
+        RatingBar ratingBar = (RatingBar) findViewById(R.id.runtime_ratingbar);
+        if (ratingBar != null) {
+            ratingBar.setNumStars(5);
+            ratingBar.setRating(3f);
+            ratingBar.setOnRatingBarChangeListener((bar, rating, fromUser) -> {
+                Log.i("DexVmTarget", "RatingBar rating=" + rating + " fromUser=" + fromUser);
+                capabilityStatus.setText("RatingBar rating=" + rating
+                        + " fromUser=" + fromUser);
+            });
+        }
+
+        GridView gridView = (GridView) findViewById(R.id.runtime_gridview);
+        if (gridView != null) {
+            ArrayAdapter<String> gridAdapter = new ArrayAdapter<String>(this, 0,
+                    new String[] {"Grid A", "Grid B", "Grid C", "Grid D", "Grid E", "Grid F"});
+            gridView.setAdapter(gridAdapter);
+            gridView.setNumColumns(2);
+            gridView.setOnClickListener(view ->
+                    capabilityStatus.setText("GridView clicked"));
         }
 
         ImageButton imageButton =

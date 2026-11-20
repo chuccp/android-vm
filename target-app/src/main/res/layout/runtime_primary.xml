@@ -1,125 +1,730 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/runtime_drawer_layout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/runtime_background"
-    android:padding="@dimen/runtime_padding">
+    android:background="@color/runtime_background">
 
-    <TextView
-        android:id="@+id/runtime_title"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="@string/xml_title"
-        android:textColor="@color/runtime_title"
-        android:textSize="@dimen/runtime_title_size"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+    <!--
+        内容面（DrawerLayout 第一个子项）：顶栏 + 可滚动 section 区。
+        VM 里跑的是 runtime.dex 的 androidx DrawerLayout 垫片；宿主物化层把
+        同一节点换成真 androidx DrawerLayout，手势/动画/遮罩为原生行为。
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-    <Button
-        android:id="@+id/runtime_action"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/runtime_gap"
-        android:gravity="center"
-        android:text="@string/xml_action"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/runtime_title" />
-
-    <Button
-        android:id="@+id/runtime_hls_action"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/runtime_gap"
-        android:gravity="center"
-        android:text="@string/xml_hls"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/runtime_action" />
-
-    <Button
-        android:id="@+id/runtime_netty_action"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/runtime_gap"
-        android:gravity="center"
-        android:text="@string/xml_netty_action"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/runtime_hls_action" />
-
-    <TextView
-        android:id="@+id/runtime_netty_status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/runtime_gap"
-        android:text="@string/netty_pending"
-        android:textColor="@color/runtime_accent"
-        android:textSize="@dimen/runtime_body_size"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/runtime_netty_action" />
-
-    <include
+    <!-- 顶栏 -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="@dimen/runtime_gap"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/runtime_netty_status"
-        layout="@layout/runtime_footer" />
+        android:background="@color/runtime_card"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp">
 
-    <FrameLayout
-        android:id="@+id/runtime_frame"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_marginTop="@dimen/runtime_gap"
-        app:layout_constraintBottom_toTopOf="@id/runtime_status"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/runtime_feature_panel">
+        <TextView
+            android:id="@+id/runtime_menu"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:gravity="center"
+            android:text="☰"
+            android:textColor="@color/runtime_title"
+            android:textSize="24sp" />
 
-        <RelativeLayout
-            android:id="@+id/runtime_relative"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_centerInParent="true"
-            android:padding="@dimen/runtime_gap">
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingStart="8dp">
 
             <TextView
-                android:id="@+id/runtime_compiled_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_alignParentStart="true"
-                android:text="@string/xml_compiled"
-                android:textColor="@color/runtime_accent"
-                android:textSize="@dimen/runtime_body_size" />
-
-            <TextView
-                android:id="@+id/runtime_relative_label"
+                android:id="@+id/runtime_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_alignStart="@id/runtime_compiled_label"
-                android:layout_below="@id/runtime_compiled_label"
-                android:layout_marginTop="@dimen/runtime_gap"
-                android:text="@string/xml_relative"
-                android:textColor="@color/runtime_body"
-                style="@style/RuntimeBodyText" />
-        </RelativeLayout>
-    </FrameLayout>
+                android:text="@string/xml_gallery_title"
+                android:textColor="@color/runtime_title"
+                android:textSize="20sp" />
 
-    <TextView
-        android:id="@+id/runtime_status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/status_created"
-        android:textColor="@color/runtime_accent"
-        android:textSize="@dimen/runtime_body_size"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-</androidx.constraintlayout.widget.ConstraintLayout>
+            <TextView
+                android:id="@+id/runtime_section_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/menu_basics"
+                android:textColor="@color/runtime_accent"
+                android:textSize="14sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 主体：section 内容区（抽屉由 androidx.DrawerLayout 承担） -->
+        <ScrollView
+            android:id="@+id/runtime_content"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <!-- Basics -->
+                <LinearLayout
+                    android:id="@+id/runtime_section_basics"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@color/runtime_card"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/runtime_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/status_created"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="@dimen/runtime_body_size" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/section_actions"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <Button
+                        android:id="@+id/runtime_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:gravity="center"
+                        android:text="@string/xml_action" />
+
+                    <Button
+                        android:id="@+id/runtime_hls_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:gravity="center"
+                        android:text="@string/xml_hls" />
+
+                    <Button
+                        android:id="@+id/runtime_netty_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:gravity="center"
+                        android:text="@string/xml_netty_action" />
+
+                    <TextView
+                        android:id="@+id/runtime_netty_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/netty_pending"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="@dimen/runtime_body_size" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/section_inputs"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <EditText
+                        android:id="@+id/runtime_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/xml_input" />
+
+                    <Switch
+                        android:id="@+id/runtime_switch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:checked="true"
+                        android:text="@string/xml_switch" />
+
+                    <ProgressBar
+                        android:id="@+id/runtime_progress"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:progress="35" />
+                </LinearLayout>
+
+                <!-- Selection -->
+                <LinearLayout
+                    android:id="@+id/runtime_section_selection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/runtime_gap"
+                    android:background="@color/runtime_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/runtime_widget_header"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/section_selection"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <CheckBox
+                        android:id="@+id/runtime_checkbox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:checked="true"
+                        android:padding="8dp"
+                        android:text="@string/xml_checkbox" />
+
+                    <RadioGroup
+                        android:id="@+id/runtime_radiogroup"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <RadioButton
+                            android:id="@+id/runtime_radio_a"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:padding="4dp"
+                            android:text="@string/xml_radio_a" />
+
+                        <RadioButton
+                            android:id="@+id/runtime_radio_b"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:padding="4dp"
+                            android:text="@string/xml_radio_b" />
+
+                        <RadioButton
+                            android:id="@+id/runtime_radio_c"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:padding="4dp"
+                            android:text="@string/xml_radio_c" />
+                    </RadioGroup>
+
+                    <ToggleButton
+                        android:id="@+id/runtime_toggle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:checked="true"
+                        android:padding="6dp"
+                        android:text="@string/xml_toggle" />
+
+                    <CheckedTextView
+                        android:id="@+id/runtime_checkedtext"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:checked="true"
+                        android:padding="8dp"
+                        android:text="@string/xml_checkedtext" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/label_seekbar"
+                        android:textColor="@color/runtime_body"
+                        android:textSize="14sp" />
+
+                    <SeekBar
+                        android:id="@+id/runtime_seekbar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:progress="40" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/label_ratingbar"
+                        android:textColor="@color/runtime_body"
+                        android:textSize="14sp" />
+
+                    <RatingBar
+                        android:id="@+id/runtime_ratingbar"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <!-- Lists & grids -->
+                <LinearLayout
+                    android:id="@+id/runtime_section_lists"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/runtime_gap"
+                    android:background="@color/runtime_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/section_lists"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/label_listview"
+                        android:textColor="@color/runtime_body"
+                        android:textSize="14sp" />
+
+                    <ListView
+                        android:id="@+id/runtime_listview"
+                        android:layout_width="match_parent"
+                        android:layout_height="120dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/label_spinner"
+                        android:textColor="@color/runtime_body"
+                        android:textSize="14sp" />
+
+                    <Spinner
+                        android:id="@+id/runtime_spinner"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/label_gridview"
+                        android:textColor="@color/runtime_body"
+                        android:textSize="14sp" />
+
+                    <GridView
+                        android:id="@+id/runtime_gridview"
+                        android:layout_width="match_parent"
+                        android:layout_height="150dp" />
+                </LinearLayout>
+
+                <!-- Layouts -->
+                <LinearLayout
+                    android:id="@+id/runtime_section_layouts"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/runtime_gap"
+                    android:background="@color/runtime_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/xml_title"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <RelativeLayout
+                        android:id="@+id/runtime_relative"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:padding="8dp">
+
+                        <TextView
+                            android:id="@+id/runtime_compiled_label"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentStart="true"
+                            android:text="@string/xml_compiled"
+                            android:textColor="@color/runtime_accent"
+                            android:textSize="@dimen/runtime_body_size" />
+
+                        <TextView
+                            android:id="@+id/runtime_relative_label"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_alignStart="@id/runtime_compiled_label"
+                            android:layout_below="@id/runtime_compiled_label"
+                            android:layout_marginTop="@dimen/runtime_gap"
+                            android:text="@string/xml_relative"
+                            android:textColor="@color/runtime_body"
+                            android:textSize="@dimen/runtime_body_size" />
+                    </RelativeLayout>
+
+                    <TableLayout
+                        android:id="@+id/runtime_tablelayout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap">
+
+                        <TableRow>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:padding="4dp"
+                                android:text="@string/xml_table_11" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:padding="4dp"
+                                android:text="@string/xml_table_12" />
+                        </TableRow>
+
+                        <TableRow>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:padding="4dp"
+                                android:text="@string/xml_table_21" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:padding="4dp"
+                                android:text="@string/xml_table_22" />
+                        </TableRow>
+                    </TableLayout>
+
+                    <include
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        layout="@layout/runtime_footer" />
+                </LinearLayout>
+
+                <!-- Dialogs & feedback -->
+                <LinearLayout
+                    android:id="@+id/runtime_section_dialogs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/runtime_gap"
+                    android:background="@color/runtime_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/section_dialogs"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <Button
+                        android:id="@+id/runtime_dialog_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/xml_dialog_action" />
+
+                    <Button
+                        android:id="@+id/runtime_alert_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/xml_alert_action" />
+
+                    <Button
+                        android:id="@+id/runtime_toast_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/xml_toast_action" />
+                </LinearLayout>
+
+                <!-- Network -->
+                <LinearLayout
+                    android:id="@+id/runtime_section_network"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/runtime_gap"
+                    android:background="@color/runtime_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/section_network"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <Button
+                        android:id="@+id/runtime_okhttp_action"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/xml_okhttp_action" />
+
+                    <EditText
+                        android:id="@+id/runtime_okhttp_output"
+                        android:layout_width="match_parent"
+                        android:layout_height="220dp"
+                        android:padding="8dp"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- Media -->
+                <LinearLayout
+                    android:id="@+id/runtime_section_media"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/runtime_gap"
+                    android:background="@color/runtime_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/section_media"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <ImageButton
+                        android:id="@+id/runtime_imagebutton"
+                        android:layout_width="96dp"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:src="@drawable/runtime_photo" />
+
+                    <ImageView
+                        android:id="@+id/runtime_image"
+                        android:layout_width="160dp"
+                        android:layout_height="90dp"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:contentDescription="@string/xml_image"
+                        android:scaleType="fitCenter" />
+
+                    <VideoView
+                        android:id="@+id/runtime_video"
+                        android:layout_width="match_parent"
+                        android:layout_height="80dp"
+                        android:layout_marginTop="@dimen/runtime_gap" />
+
+                    <VideoView
+                        android:id="@+id/runtime_hls_video"
+                        android:layout_width="match_parent"
+                        android:layout_height="160dp"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/runtime_hls_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/hls_pending"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="@dimen/runtime_body_size" />
+
+                    <TextView
+                        android:id="@+id/runtime_media_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/media_pending"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="@dimen/runtime_body_size" />
+                </LinearLayout>
+
+                <!-- Runtime status -->
+                <LinearLayout
+                    android:id="@+id/runtime_section_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/runtime_gap"
+                    android:background="@color/runtime_card"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/section_status"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="18sp" />
+
+                    <TextView
+                        android:id="@+id/runtime_thread_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:text="@string/thread_pending"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="@dimen/runtime_body_size" />
+
+                    <TextView
+                        android:id="@+id/runtime_io_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/io_pending"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="@dimen/runtime_body_size" />
+
+                    <TextView
+                        android:id="@+id/runtime_capability_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/capability_pending"
+                        android:textColor="@color/runtime_accent"
+                        android:textSize="@dimen/runtime_body_size" />
+
+                    <LinearLayout
+                        android:id="@+id/runtime_panel_slot"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/runtime_gap"
+                        android:orientation="vertical" />
+                </LinearLayout>
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+
+    <!--
+        侧滑菜单（抽屉面：DrawerLayout 第二个子项，start 抽屉）。
+        原生 NavigationView 风格：深色头图（应用名/副标题）+ 48dp 列表行
+        （TextView 行，当前项由 MainActivity 着 accent 底色/文字色）。
+    -->
+    <LinearLayout
+        android:id="@+id/runtime_drawer"
+        android:layout_width="200dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="@color/runtime_card"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/runtime_drawer_header"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/xml_gallery_title"
+                android:textColor="#FFFFFFFF"
+                android:textSize="20sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/menu_app_subtitle"
+                android:textColor="#B3FFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/runtime_menu_basics"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/menu_basics"
+            android:textColor="@color/runtime_title"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/runtime_menu_selection"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/menu_selection"
+            android:textColor="@color/runtime_title"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/runtime_menu_lists"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/section_lists"
+            android:textColor="@color/runtime_title"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/runtime_menu_layouts"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/menu_layouts"
+            android:textColor="@color/runtime_title"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/runtime_menu_dialogs"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/section_dialogs"
+            android:textColor="@color/runtime_title"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/runtime_menu_network"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/section_network"
+            android:textColor="@color/runtime_title"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/runtime_menu_media"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/section_media"
+            android:textColor="@color/runtime_title"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/runtime_menu_status"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="@string/section_status"
+            android:textColor="@color/runtime_title"
+            android:textSize="16sp" />
+    </LinearLayout>
+</androidx.drawerlayout.widget.DrawerLayout>

@@ -131,6 +131,12 @@ public final class NativeBridge {
     /** SeekBar 拖拽回灌：phase 0=progress / 1=startTracking / 2=stopTracking。 */
     public static native String nativeDispatchViewSeek(int objectId, int progress, int phase);
 
+    /** RatingBar 拖星回灌：milliRating = rating * 1000。 */
+    public static native String nativeDispatchViewRating(int objectId, int milliRating);
+
+    /** DrawerLayout 开合回灌：host 手势开合 -> objectId+open -> guest DrawerListener。 */
+    public static native String nativeDispatchViewDrawer(int objectId, boolean open);
+
     /**
      * M3 加固考卷设备化：exam_smoke 同款引导 + LifecycleDriver 驱动 + 逐 phase/缺口
      * 诊断；System.loadLibrary 设备钩子接真 loader（APK 内 lib/&lt;abi&gt;/*.so 解压到

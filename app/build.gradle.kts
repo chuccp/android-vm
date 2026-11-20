@@ -51,6 +51,12 @@ android {
     }
 }
 
+dependencies {
+    // 宿主物化面：guest androidx DrawerLayout -> 宿主真 DrawerLayout（原生
+    // 手势/动画/遮罩），其余 androidx 类由 guest 侧 runtime.dex 提供。
+    implementation("androidx.drawerlayout:drawerlayout:1.2.0")
+}
+
 // target-app-debug.apk -> generated assets（asset 落位；缺则先 :target-app:assembleDebug）
 val copyTargetApkAssets = tasks.register<Copy>("copyTargetApkAssets") {
     dependsOn(":target-app:assembleDebug")
